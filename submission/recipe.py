@@ -19,18 +19,21 @@ import time
 
 import numpy as np
 
-from submission.ltr_common import (apply_transform, feature_names, group_sizes, make_contiguous, pad_to,
-                                   read_ltr)
+from submission.ltr_common import (WidthError, apply_transform, feature_names, group_sizes, make_contiguous,
+                                   pad_to, read_into, read_ltr)
 
 TIME_GUARD_SECONDS = 16 * 60          # staff cap is 20 min
-# tree budget in (rows x features used x trees); ~6 min of training on a fast laptop at the worst case,
-# so a 2-3x slower grading box still fits the cap
-TREE_WORK_BUDGET = 3.3e11
+# tree budget in (rows x features used x trees). 3.3e11 took 6 min on a fast laptop at the worst case
+# (500k x 300, query-z doubles it to 600), too close to 20 min on a 2-3x slower box -> 2.2e11 (~4 min here)
+TREE_WORK_BUDGET = 2.2e11
+HIST_POOL_MB = 1024  # cap lightgbm's per-leaf histogram cache (it grows with leaves x features x bins)
 
+# picked on 5 MSLR-TRAIN-derived proxies (experiments/c1_proxy.py, notes F9): query-z features +0.006,
+# train+vali refit +0.005, both +0.009 mean test nDCG@10, best on 4/5 proxies
 OPTIONS = {
-    "transform": "raw",       # 'raw' | 'raw+qz'
+    "transform": "raw+qz",    # 'raw' | 'raw+qz'
     "search": "small",        # 'single' | 'small'
-    "refit": "none",          # 'none' | 'trainval'
+    "refit": "trainval",      # 'none' | 'trainval'
     "learning_rate": 0.05,
     "es_rounds": 100,
 }
@@ -69,7 +72,7 @@ def _base_params(seed: int, n_feat: int, lr: float) -> dict:
         "feature_fraction": _feature_fraction(n_feat),
         "bagging_fraction": 0.8, "bagging_freq": 1,
         "seed": seed, "deterministic": True, "force_row_wise": True,
-        "num_threads": 4, "verbose": -1,
+        "num_threads": 4, "verbose": -1, "histogram_pool_size": HIST_POOL_MB,
     }
 
 
@@ -87,13 +90,24 @@ def train(train_path: str, vali_path: str, out_model_path: str, seed: int = 0) -
     _train(train_path, vali_path, out_model_path, seed, **OPTIONS)
 
 
-def _load(train_path, vali_path):
-    Xtr, ytr, qtr = read_ltr(train_path)
-    Xva, yva, qva = read_ltr(vali_path)
-    width = max(Xtr.shape[1], Xva.shape[1])
-    Xtr, ytr, qtr = make_contiguous(pad_to(Xtr, width), ytr, qtr)
-    Xva, yva, qva = make_contiguous(pad_to(Xva, width), yva, qva)
-    return (Xtr, ytr, qtr), (Xva, yva, qva), width
+def _load_matrix(train_path, vali_path, transform):
+    """train + vali stacked into one model-input matrix (train rows first) plus per-file query sizes.
+    Normal path parses straight into one preallocated array (peak ~1 copy of the data); if a file
+    lists feature indices out of order, fall back to the simpler reader (needs ~3 copies)."""
+    try:
+        T, y, (g_tr, g_va), width = read_into([train_path, vali_path], transform)
+        return T, y, g_tr, g_va, width
+    except WidthError:
+        Xtr, ytr, qtr = read_ltr(train_path)
+        Xva, yva, qva = read_ltr(vali_path)
+        width = max(Xtr.shape[1], Xva.shape[1])
+        Xtr, ytr, qtr = make_contiguous(pad_to(Xtr, width), ytr, qtr)
+        Xva, yva, qva = make_contiguous(pad_to(Xva, width), yva, qva)
+        g_tr, g_va = group_sizes(qtr), group_sizes(qva)
+        X = np.vstack([Xtr, Xva])
+        del Xtr, Xva
+        T = apply_transform(X, None, transform, sizes=g_tr + g_va)
+        return T, np.concatenate([ytr, yva]), g_tr, g_va, width
 
 
 def _train(train_path, vali_path, out_model_path, seed=0, *, transform="raw", search="small", refit="none",
@@ -101,39 +115,45 @@ def _train(train_path, vali_path, out_model_path, seed=0, *, transform="raw", se
     import lightgbm as lgb
 
     t_start = time.monotonic()
-    (Xtr, ytr, qtr), (Xva, yva, qva), width = _load(train_path, vali_path)
+    T_all, y_all, g_tr, g_va, width = _load_matrix(train_path, vali_path, transform)
     names = feature_names(width, transform)
-    Ttr, Tva = apply_transform(Xtr, qtr, transform), apply_transform(Xva, qva, transform)
+    n_tr = sum(g_tr)
+    Ttr, Tva = T_all[:n_tr], T_all[n_tr:]  # row views, no copies
+    ytr, yva = y_all[:n_tr], y_all[n_tr:]
 
-    base = _base_params(seed, Ttr.shape[1], learning_rate)
-    configs = _configs(len(ytr), search)
-    work_per_tree = len(ytr) * Ttr.shape[1] * base["feature_fraction"]
+    base = _base_params(seed, T_all.shape[1], learning_rate)
+    configs = _configs(n_tr, search)
+    work_per_tree = n_tr * T_all.shape[1] * base["feature_fraction"]
     fits = len(configs) + (1 if refit == "trainval" else 0)
     rounds = int(np.clip(TREE_WORK_BUDGET / work_per_tree / fits, 100, 5000))
     guard = _TimeGuard(t_start + TIME_GUARD_SECONDS)
 
-    dtrain = lgb.Dataset(Ttr, label=ytr, group=group_sizes(qtr), feature_name=names, free_raw_data=False)
-    dvali = lgb.Dataset(Tva, label=yva, group=group_sizes(qva), feature_name=names, reference=dtrain)
-    tried = []
+    dtrain = lgb.Dataset(Ttr, label=ytr, group=g_tr, feature_name=names)
+    dvali = lgb.Dataset(Tva, label=yva, group=g_va, feature_name=names, reference=dtrain)
+    tried, best = [], None
     for cfg in configs:
         params = dict(base, **cfg)
         booster = lgb.train(params, dtrain, num_boost_round=rounds, valid_sets=[dvali], valid_names=["vali"],
                             callbacks=[lgb.early_stopping(es_rounds, verbose=False), guard])
-        tried.append((booster.best_score["vali"]["ndcg@10"], booster.best_iteration, cfg, booster))
-    best_score, best_iter, best_cfg, best_booster = max(tried, key=lambda t: t[0])
+        score = booster.best_score["vali"]["ndcg@10"]
+        tried.append((score, booster.best_iteration, cfg))
+        if best is None or score > best[0]:  # ties keep the earlier config
+            best = (score, booster.best_iteration, cfg, booster)
+        del booster  # only the best booster stays alive (each one holds its own histogram cache)
+    best_score, best_iter, best_cfg, best_booster = best
+    del best
 
     if refit == "trainval":
         # same config, more data: trees scaled by the data ratio
-        n_trees = int(round(best_iter * (len(ytr) + len(yva)) / len(ytr)))
-        Tall = np.vstack([Ttr, Tva])
-        yall = np.concatenate([ytr, yva])
-        gall = group_sizes(qtr) + group_sizes(qva)
-        model = lgb.train(dict(base, **best_cfg), lgb.Dataset(Tall, label=yall, group=gall, feature_name=names),
+        del dtrain, dvali, best_booster
+        n_trees = int(round(best_iter * len(y_all) / n_tr))
+        model = lgb.train(dict(base, **best_cfg),
+                          lgb.Dataset(T_all, label=y_all, group=g_tr + g_va, feature_name=names),
                           num_boost_round=max(n_trees, 1), callbacks=[guard])
         model.save_model(out_model_path)
     else:
         best_booster.save_model(out_model_path, num_iteration=best_iter)
 
     if return_info:
-        return {"rounds_cap": rounds, "tried": [(round(s, 4), it, c) for s, it, c, _ in tried],
+        return {"rounds_cap": rounds, "tried": [(round(s, 4), it, c) for s, it, c in tried],
                 "picked": best_cfg, "best_iter": best_iter, "seconds": time.monotonic() - t_start}

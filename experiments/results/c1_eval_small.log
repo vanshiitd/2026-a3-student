@@ -1,0 +1,12 @@
+p1_small_46f_l3    base       test nDCG@10 0.4380      9s  picked {'num_leaves': 15, 'min_data_in_leaf': 20} iter 118
+p1_small_46f_l3    qz         test nDCG@10 0.4408      5s  picked {'num_leaves': 7, 'min_data_in_leaf': 20} iter 75
+p1_small_46f_l3    single     test nDCG@10 0.4380      2s  picked {'num_leaves': 15, 'min_data_in_leaf': 20} iter 118
+p1_small_46f_l3    refit      test nDCG@10 0.4397      7s  picked {'num_leaves': 15, 'min_data_in_leaf': 20} iter 118
+p1_small_46f_l3    qz_refit   test nDCG@10 0.4393      6s  picked {'num_leaves': 7, 'min_data_in_leaf': 20} iter 75
+p1_small_46f_l3    lr10       test nDCG@10 0.4415      4s  picked {'num_leaves': 7, 'min_data_in_leaf': 20} iter 69
+p2_small_60f_l5    base       test nDCG@10 0.4344     13s  picked {'num_leaves': 15, 'min_data_in_leaf': 21} iter 202
+p2_small_60f_l5    qz         test nDCG@10 0.4369     21s  picked {'num_leaves': 31, 'min_data_in_leaf': 21} iter 189
+p2_small_60f_l5    single     test nDCG@10 0.4212      6s  picked {'num_leaves': 31, 'min_data_in_leaf': 21} iter 223
+p2_small_60f_l5    refit      test nDCG@10 0.4390     18s  picked {'num_leaves': 15, 'min_data_in_leaf': 21} iter 202
+p2_small_60f_l5    qz_refit   test nDCG@10 0.4470     27s  picked {'num_leaves': 31, 'min_data_in_leaf': 21} iter 189
+p2_small_60f_l5    lr10       test nDCG@10 0.4173      9s  picked {'num_leaves': 31, 'min_data_in_leaf': 21} iter 75

@@ -65,7 +65,12 @@ def _write(path, X, y, q):
             f.write(f"{y[i]} qid:{q[i]} {body}\n")
 
 
+TEST_QUERIES = 1500  # big disjoint test set so proxy noise (SE ~0.006) is below the effects we compare
+
+
 def build():
+    """train/vali = the proxy's own size (that's what the recipe's size rules see); test = 1500 OTHER
+    MSLR TRAIN queries pushed through the same column pick / rescale / noise / label map"""
     X, y, q = load_split("train")
     uq = np.array(list(dict.fromkeys(q.tolist())))
     for name, (n_q, n_f, n_noise, labels, seed) in PROXIES.items():
@@ -73,8 +78,13 @@ def build():
         if os.path.exists(os.path.join(out, "test.txt")):
             continue
         rng = np.random.RandomState(seed)
-        chosen = rng.choice(uq, n_q, replace=False)
-        mask = np.isin(q, chosen)
+        picked = rng.choice(uq, n_q + TEST_QUERIES, replace=False)
+        fit_q, test_q = picked[:n_q], picked[n_q:]
+        n_train = int(round(0.75 * n_q))
+        split_of = {qq: "train" for qq in fit_q[:n_train]}
+        split_of.update({qq: "vali" for qq in fit_q[n_train:]})
+        split_of.update({qq: "test" for qq in test_q})
+        mask = np.isin(q, picked)
         Xp, yp, qp = X[mask], y[mask].copy(), q[mask]
         cols = np.sort(rng.choice(136, n_f, replace=False))
         Xp = np.column_stack([_monotone(Xp[:, c].astype(np.float64), rng) for c in cols] +
@@ -82,16 +92,13 @@ def build():
         Xp = Xp[:, rng.permutation(Xp.shape[1])].astype(np.float32)
         if labels == "0-2":
             yp = np.array([0, 1, 1, 2, 2])[yp]
-        # new opaque qids, split by query 60/20/20
-        order = rng.permutation(n_q)
-        split_of = {qq: ("train" if r < 0.6 * n_q else "vali" if r < 0.8 * n_q else "test")
-                    for r, qq in zip(np.argsort(order), chosen)}
-        qmap = {qq: str(70000 + i) for i, qq in enumerate(chosen)}
+        qmap = {qq: str(70000 + i) for i, qq in enumerate(picked)}  # opaque new qids
         os.makedirs(out, exist_ok=True)
         for split in ("train", "vali", "test"):
             m = np.array([split_of[qq] == split for qq in qp])
             _write(os.path.join(out, f"{split}.txt"), Xp[m], yp[m], np.array([qmap[qq] for qq in qp[m]]))
-        print(f"built {name}: {n_q} queries, {Xp.shape[1]} features, labels {labels}", flush=True)
+        print(f"built {name}: {n_q} fit queries (+{TEST_QUERIES} test), {Xp.shape[1]} features, "
+              f"labels {labels}", flush=True)
 
 
 def _score(model_path, test_path):

@@ -1,0 +1,19 @@
+RESULT recipe total 248.9 s {'rounds_cap': 366, 'tried': [(np.float64(0.9176), 366, {'num_leaves': 31, 'min_data_in_leaf': 200}), (np.float64(0.9355), 366, {'num_leaves': 63, 'min_data_in_leaf': 200}), (np.float64(0.9616), 366, {'num_leaves': 127, 'min_data_in_leaf': 200})], 'picked': {'num_leaves': 127, 'min_data_in_leaf': 200}, 'best_iter': 366, 'seconds': 247.62361466599395}
+      249.17 real       857.24 user        14.01 sys
+          4321705984  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              524625  page reclaims
+                 237  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+             3793601  involuntary context switches
+      10779799805141  instructions retired
+       2761901596056  cycles elapsed
+          4157296360  peak memory footprint

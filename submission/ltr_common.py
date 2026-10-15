@@ -69,6 +69,76 @@ def read_ltr(path: str, n_features: Optional[int] = None) -> Tuple[np.ndarray, n
     return X, np.asarray(labels, dtype=np.int64), np.asarray(qids, dtype=object)
 
 
+def _scan(path: str) -> Tuple[int, int]:
+    """cheap first pass: (data rows, largest feature index). svmlight lists indices ascending, so the
+    last token of a line is its largest; read_into() still checks every index on the real pass."""
+    rows, width = 0, 0
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            rows += 1
+            last = line.rsplit(None, 1)[-1]
+            if ":" in last and not last.startswith("qid:"):
+                width = max(width, int(last.split(":", 1)[0]))
+    return rows, width
+
+
+class WidthError(ValueError):
+    """a line had a feature index above the scanned width (indices not ascending) -> caller falls back"""
+
+
+def read_into(paths: List[str], transform: str):
+    """Read several svmlight files straight into ONE preallocated model-input matrix (raw block, plus the
+    query-z block if transform='raw+qz'), so only one full copy of the data ever exists.
+    Returns (T float32 [rows, n_cols], y int64, sizes = per-file lists of rows-per-query, width)."""
+    scans = [_scan(p) for p in paths]
+    n_rows = sum(r for r, _ in scans)
+    width = max(w for _, w in scans)
+    n_cols = width * (2 if transform == "raw+qz" else 1)
+    T = np.zeros((n_rows, n_cols), dtype=np.float32)
+    y = np.zeros(n_rows, dtype=np.int64)
+    sizes, r = [], 0
+    for path in paths:
+        qids = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line_no, line in enumerate(f, start=1):
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                parts = line.split(None, 2)
+                if len(parts) < 2 or not parts[1].startswith("qid:"):
+                    raise ValueError(f"{path}:{line_no}: expected '<label> qid:<id> ...'")
+                y[r] = int(float(parts[0]))
+                qids.append(parts[1][4:])
+                if len(parts) == 3:
+                    arr = np.array(parts[2].replace(":", " ").split(), dtype=np.float64)
+                    idx = arr[0::2].astype(np.int64)
+                    if len(idx) and idx.max() > width:
+                        raise WidthError(f"{path}:{line_no}: feature index {idx.max()} > scanned width {width}")
+                    T[r, idx - 1] = arr[1::2]
+                r += 1
+        # rows of a query must be contiguous for lightgbm; reorder this file's block if they aren't
+        start = r - len(qids)
+        sizes_f = group_sizes(qids)
+        if len(sizes_f) != len(set(qids)):
+            first = {}
+            for i, q in enumerate(qids):
+                first.setdefault(q, i)
+            order = np.argsort(np.array([first[q] for q in qids]), kind="stable")
+            T[start:r] = T[start:r][order]
+            y[start:r] = y[start:r][order]
+            sizes_f = group_sizes([qids[i] for i in order])
+        sizes.append(sizes_f)
+    if transform == "raw+qz":
+        start = 0
+        for size in (s for f in sizes for s in f):
+            T[start:start + size, width:] = query_zscore(T[start:start + size, :width])
+            start += size
+    return T, y, sizes, width
+
+
 def pad_to(X: np.ndarray, width: int) -> np.ndarray:
     """zero-pad (or cut) columns so a file whose last features were all-zero still matches the model"""
     if X.shape[1] == width:
@@ -133,14 +203,15 @@ def query_zscore(Xq: np.ndarray) -> np.ndarray:
     return ((Xq - mu) / sd).astype(np.float32)
 
 
-def apply_transform(X: np.ndarray, qids, transform: str) -> np.ndarray:
-    """X rows grouped by query (contiguous) -> model inputs"""
+def apply_transform(X: np.ndarray, qids, transform: str, sizes: Optional[List[int]] = None) -> np.ndarray:
+    """X rows grouped by query (contiguous) -> model inputs. Pass `sizes` (rows per query) instead of
+    qids when two files are stacked, so a qid repeated across the boundary stays two groups."""
     if transform == "raw":
         return X
     out = np.empty((X.shape[0], 2 * X.shape[1]), dtype=np.float32)
     out[:, :X.shape[1]] = X
     start = 0
-    for size in group_sizes(qids):
+    for size in (sizes if sizes is not None else group_sizes(qids)):
         out[start:start + size, X.shape[1]:] = query_zscore(X[start:start + size])
         start += size
     return out
