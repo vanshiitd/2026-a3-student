@@ -2,3 +2,116 @@
   pairwise epoch  2  loss 0.6038  dev nDCG@10 0.4136
   pairwise epoch  3  loss 0.6002  dev nDCG@10 0.4107
   pairwise epoch  4  loss 0.5981  dev nDCG@10 0.4240
+  pairwise epoch  5  loss 0.5964  dev nDCG@10 0.4231
+  pairwise epoch  6  loss 0.5945  dev nDCG@10 0.4223
+  pairwise epoch  7  loss 0.5934  dev nDCG@10 0.4191
+  pairwise epoch  8  loss 0.5925  dev nDCG@10 0.4264
+  pairwise epoch  9  loss 0.5915  dev nDCG@10 0.4285
+  pairwise epoch 10  loss 0.5910  dev nDCG@10 0.4248
+  pairwise epoch 11  loss 0.5897  dev nDCG@10 0.4272
+  pairwise epoch 12  loss 0.5893  dev nDCG@10 0.4293
+  pairwise epoch 13  loss 0.5885  dev nDCG@10 0.4275
+  pairwise epoch 14  loss 0.5879  dev nDCG@10 0.4291
+  pairwise epoch 15  loss 0.5878  dev nDCG@10 0.4278
+  pairwise epoch 16  loss 0.5873  dev nDCG@10 0.4286
+lr3                  holdout 0.4293 @ep12  DEV 0.4341  62s
+  pairwise epoch  1  loss 0.6100  dev nDCG@10 0.4234
+  pairwise epoch  2  loss 0.6010  dev nDCG@10 0.4264
+  pairwise epoch  3  loss 0.5972  dev nDCG@10 0.4267
+  pairwise epoch  4  loss 0.5952  dev nDCG@10 0.4345
+  pairwise epoch  5  loss 0.5934  dev nDCG@10 0.4262
+  pairwise epoch  6  loss 0.5917  dev nDCG@10 0.4197
+  pairwise epoch  7  loss 0.5910  dev nDCG@10 0.4291
+  pairwise epoch  8  loss 0.5898  dev nDCG@10 0.4280
+ppq1000_lr3          holdout 0.4345 @ep4  DEV 0.4332  66s
+  pairwise epoch  1  loss 0.5914  dev nDCG@10 0.4274
+  pairwise epoch  2  loss 0.5774  dev nDCG@10 0.4335
+  pairwise epoch  3  loss 0.5725  dev nDCG@10 0.4350
+  pairwise epoch  4  loss 0.5698  dev nDCG@10 0.4386
+  pairwise epoch  5  loss 0.5673  dev nDCG@10 0.4383
+  pairwise epoch  6  loss 0.5644  dev nDCG@10 0.4386
+  pairwise epoch  7  loss 0.5630  dev nDCG@10 0.4366
+  pairwise epoch  8  loss 0.5622  dev nDCG@10 0.4367
+  pairwise epoch  9  loss 0.5606  dev nDCG@10 0.4410
+  pairwise epoch 10  loss 0.5601  dev nDCG@10 0.4348
+  pairwise epoch 11  loss 0.5584  dev nDCG@10 0.4374
+  pairwise epoch 12  loss 0.5570  dev nDCG@10 0.4383
+  pairwise epoch 13  loss 0.5569  dev nDCG@10 0.4364
+gain_lr3             holdout 0.4410 @ep9  DEV 0.4389  58s
+  pairwise epoch  1  loss 0.6053  dev nDCG@10 0.4264
+  pairwise epoch  2  loss 0.5940  dev nDCG@10 0.4294
+  pairwise epoch  3  loss 0.5872  dev nDCG@10 0.4152
+  pairwise epoch  4  loss 0.5821  dev nDCG@10 0.4261
+  pairwise epoch  5  loss 0.5774  dev nDCG@10 0.4169
+  pairwise epoch  6  loss 0.5723  dev nDCG@10 0.4173
+wide_lr3             holdout 0.4294 @ep2  DEV 0.4276  50s
+  pairwise epoch  1  loss 0.5963  dev nDCG@10 0.4120
+  pairwise epoch  2  loss 0.5705  dev nDCG@10 0.4143
+  pairwise epoch  3  loss 0.5475  dev nDCG@10 0.3951
+  pairwise epoch  4  loss 0.5274  dev nDCG@10 0.3875
+  pairwise epoch  5  loss 0.5094  dev nDCG@10 0.3790
+  pairwise epoch  6  loss 0.4939  dev nDCG@10 0.3788
+deep_ppq1000_lr3     holdout 0.4143 @ep2  DEV 0.4193  214s
+  pairwise epoch  1  loss 0.6143  dev nDCG@10 0.4062
+  pairwise epoch  2  loss 0.6045  dev nDCG@10 0.4124
+  pairwise epoch  3  loss 0.6006  dev nDCG@10 0.4174
+  pairwise epoch  4  loss 0.5986  dev nDCG@10 0.4202
+  pairwise epoch  5  loss 0.5958  dev nDCG@10 0.4241
+  pairwise epoch  6  loss 0.5950  dev nDCG@10 0.4218
+  pairwise epoch  7  loss 0.5939  dev nDCG@10 0.4257
+  pairwise epoch  8  loss 0.5932  dev nDCG@10 0.4204
+  pairwise epoch  9  loss 0.5921  dev nDCG@10 0.4184
+  pairwise epoch 10  loss 0.5913  dev nDCG@10 0.4189
+  pairwise epoch 11  loss 0.5907  dev nDCG@10 0.4224
+lr3                  holdout 0.4257 @ep7  DEV 0.4271  48s
+  pairwise epoch  1  loss 0.6105  dev nDCG@10 0.4165
+  pairwise epoch  2  loss 0.6012  dev nDCG@10 0.4214
+  pairwise epoch  3  loss 0.5978  dev nDCG@10 0.4241
+  pairwise epoch  4  loss 0.5953  dev nDCG@10 0.4202
+  pairwise epoch  5  loss 0.5936  dev nDCG@10 0.4278
+  pairwise epoch  6  loss 0.5923  dev nDCG@10 0.4262
+  pairwise epoch  7  loss 0.5916  dev nDCG@10 0.4296
+  pairwise epoch  8  loss 0.5905  dev nDCG@10 0.4289
+  pairwise epoch  9  loss 0.5896  dev nDCG@10 0.4219
+  pairwise epoch 10  loss 0.5891  dev nDCG@10 0.4269
+  pairwise epoch 11  loss 0.5882  dev nDCG@10 0.4201
+ppq1000_lr3          holdout 0.4296 @ep7  DEV 0.4318  96s
+  pairwise epoch  1  loss 0.5936  dev nDCG@10 0.4267
+  pairwise epoch  2  loss 0.5786  dev nDCG@10 0.4313
+  pairwise epoch  3  loss 0.5738  dev nDCG@10 0.4319
+  pairwise epoch  4  loss 0.5699  dev nDCG@10 0.4354
+  pairwise epoch  5  loss 0.5676  dev nDCG@10 0.4371
+  pairwise epoch  6  loss 0.5655  dev nDCG@10 0.4360
+  pairwise epoch  7  loss 0.5636  dev nDCG@10 0.4413
+  pairwise epoch  8  loss 0.5618  dev nDCG@10 0.4380
+  pairwise epoch  9  loss 0.5602  dev nDCG@10 0.4384
+  pairwise epoch 10  loss 0.5592  dev nDCG@10 0.4413
+  pairwise epoch 11  loss 0.5577  dev nDCG@10 0.4421
+  pairwise epoch 12  loss 0.5572  dev nDCG@10 0.4427
+  pairwise epoch 13  loss 0.5565  dev nDCG@10 0.4416
+  pairwise epoch 14  loss 0.5553  dev nDCG@10 0.4393
+  pairwise epoch 15  loss 0.5546  dev nDCG@10 0.4401
+  pairwise epoch 16  loss 0.5540  dev nDCG@10 0.4435
+  pairwise epoch 17  loss 0.5535  dev nDCG@10 0.4432
+  pairwise epoch 18  loss 0.5531  dev nDCG@10 0.4446
+  pairwise epoch 19  loss 0.5523  dev nDCG@10 0.4426
+  pairwise epoch 20  loss 0.5522  dev nDCG@10 0.4415
+  pairwise epoch 21  loss 0.5504  dev nDCG@10 0.4398
+  pairwise epoch 22  loss 0.5510  dev nDCG@10 0.4363
+gain_lr3             holdout 0.4446 @ep18  DEV 0.4440  103s
+  pairwise epoch  1  loss 0.6056  dev nDCG@10 0.4204
+  pairwise epoch  2  loss 0.5932  dev nDCG@10 0.4232
+  pairwise epoch  3  loss 0.5865  dev nDCG@10 0.4234
+  pairwise epoch  4  loss 0.5816  dev nDCG@10 0.4336
+  pairwise epoch  5  loss 0.5757  dev nDCG@10 0.4339
+  pairwise epoch  6  loss 0.5720  dev nDCG@10 0.4150
+  pairwise epoch  7  loss 0.5679  dev nDCG@10 0.4212
+  pairwise epoch  8  loss 0.5644  dev nDCG@10 0.4146
+  pairwise epoch  9  loss 0.5605  dev nDCG@10 0.4208
+wide_lr3             holdout 0.4339 @ep5  DEV 0.4360  80s
+  pairwise epoch  1  loss 0.5962  dev nDCG@10 0.4278
+  pairwise epoch  2  loss 0.5711  dev nDCG@10 0.4060
+  pairwise epoch  3  loss 0.5490  dev nDCG@10 0.3726
+  pairwise epoch  4  loss 0.5299  dev nDCG@10 0.3947
+  pairwise epoch  5  loss 0.5109  dev nDCG@10 0.3809
+deep_ppq1000_lr3     holdout 0.4278 @ep1  DEV 0.4285  192s

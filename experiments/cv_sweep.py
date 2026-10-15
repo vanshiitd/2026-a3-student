@@ -42,6 +42,16 @@ def _grid(name):
         for leaves, md, ff in itertools.product([31, 127, 255], [50, 400], [0.5, 0.8]):
             out.append({"num_leaves": leaves, "min_data_in_leaf": md, "feature_fraction": ff, "max_trees": 800})
         return out
+    if name == "stage2":
+        # stage1 said: small trees (31 leaves) match big ones on val and memorise far less.
+        # now: lower lr + more trees, query-z features, lambdarank truncation level
+        out = [{"learning_rate": 0.05, "num_leaves": l, "min_data_in_leaf": md, "feature_fraction": 0.5,
+                "max_trees": 2000} for l in (31, 63) for md in (50, 200)]
+        out.append({"transform": "raw+qz", "num_leaves": 31, "min_data_in_leaf": 50, "feature_fraction": 0.5,
+                    "max_trees": 800})
+        out += [{"lambdarank_truncation_level": t, "num_leaves": 31, "min_data_in_leaf": 50,
+                 "feature_fraction": 0.5, "max_trees": 800} for t in (10, 20)]
+        return out
     if name == "transform":
         return [{"transform": t, "num_leaves": l, "min_data_in_leaf": 200, "max_trees": 800}
                 for t in ("raw", "raw+qz") for l in (31, 127)]

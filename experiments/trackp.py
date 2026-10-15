@@ -45,6 +45,12 @@ VARIANTS = {
     "gain_lr3": {"sampler": "gain", "lr": 3e-4},
     "wide_lr3": {"hidden": [256, 128], "lr": 3e-4},
     "deep_ppq1000_lr3": {"hidden": [256, 256, 128], "pairs_per_query": 1000, "lr": 3e-4},
+    "gain2_lr3": {"sampler": "gain2", "lr": 3e-4},
+    "gain_ppq600_lr3": {"sampler": "gain", "pairs_per_query": 600, "lr": 3e-4},
+    "gain_ppq150_lr3": {"sampler": "gain", "pairs_per_query": 150, "lr": 3e-4},
+    "gain_lambda_lr3": {"sampler": "gain", "weighting": "lambda", "lr": 3e-4},
+    "gain_lr3_e50": {"sampler": "gain", "lr": 3e-4, "epochs": 50, "patience": 6},
+    "gain_wide_lr3": {"sampler": "gain", "hidden": [128, 64], "lr": 3e-4},
 }
 DEFAULTS = {"kind": "pairwise", "epochs": 30, "patience": 4, "lr": 1e-3, "batch_size": 1024,
             "pairs_per_query": 300, "hidden": 64}

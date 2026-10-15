@@ -1,0 +1,37 @@
+  pointwise epoch  1  loss 0.6067  dev nDCG@10 0.3934
+  pointwise epoch  2  loss 0.5745  dev nDCG@10 0.4078
+  pointwise epoch  3  loss 0.5726  dev nDCG@10 0.4144
+  pointwise epoch  4  loss 0.5711  dev nDCG@10 0.4121
+  pointwise epoch  5  loss 0.5679  dev nDCG@10 0.4091
+  pointwise epoch  6  loss 0.5740  dev nDCG@10 0.4182
+  pointwise epoch  7  loss 0.5661  dev nDCG@10 0.4230
+  pointwise epoch  8  loss 0.5652  dev nDCG@10 0.4216
+  pointwise epoch  9  loss 0.5681  dev nDCG@10 0.4238
+  pointwise epoch 10  loss 0.5667  dev nDCG@10 0.4200
+  pointwise epoch 11  loss 0.5685  dev nDCG@10 0.4179
+  pointwise epoch 12  loss 0.5635  dev nDCG@10 0.4161
+  pointwise epoch 13  loss 0.5655  dev nDCG@10 0.4150
+  pointwise epoch 14  loss 0.5645  dev nDCG@10 0.4238
+  pointwise epoch 15  loss 0.5622  dev nDCG@10 0.4209
+pointwise: epochs run = 15, best early-stop-split nDCG@10 = 0.4238, dev nDCG@10 = 0.4201 -> submission/pointwise_model.pt
+  pairwise epoch  1  loss 0.5914  dev nDCG@10 0.4274
+  pairwise epoch  2  loss 0.5774  dev nDCG@10 0.4335
+  pairwise epoch  3  loss 0.5725  dev nDCG@10 0.4350
+  pairwise epoch  4  loss 0.5698  dev nDCG@10 0.4386
+  pairwise epoch  5  loss 0.5673  dev nDCG@10 0.4383
+  pairwise epoch  6  loss 0.5644  dev nDCG@10 0.4386
+  pairwise epoch  7  loss 0.5630  dev nDCG@10 0.4366
+  pairwise epoch  8  loss 0.5622  dev nDCG@10 0.4367
+  pairwise epoch  9  loss 0.5606  dev nDCG@10 0.4410
+  pairwise epoch 10  loss 0.5601  dev nDCG@10 0.4348
+  pairwise epoch 11  loss 0.5584  dev nDCG@10 0.4374
+  pairwise epoch 12  loss 0.5570  dev nDCG@10 0.4383
+  pairwise epoch 13  loss 0.5569  dev nDCG@10 0.4364
+  pairwise epoch 14  loss 0.5557  dev nDCG@10 0.4444
+  pairwise epoch 15  loss 0.5552  dev nDCG@10 0.4397
+  pairwise epoch 16  loss 0.5543  dev nDCG@10 0.4323
+  pairwise epoch 17  loss 0.5533  dev nDCG@10 0.4387
+  pairwise epoch 18  loss 0.5533  dev nDCG@10 0.4375
+  pairwise epoch 19  loss 0.5526  dev nDCG@10 0.4381
+  pairwise epoch 20  loss 0.5523  dev nDCG@10 0.4388
+pairwise: epochs run = 20, best early-stop-split nDCG@10 = 0.4444, dev nDCG@10 = 0.4419 -> submission/pairwise_model.pt

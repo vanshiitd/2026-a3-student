@@ -215,9 +215,10 @@ def lambda_weights(pairs: np.ndarray, qindex: "_QueryIndex", scores: np.ndarray,
     return dg * dd / np.maximum(idcg, 1e-12)
 
 
-def make_pairs_gain_sampled(qids, labels, pairs_per_query: int, rng: np.random.RandomState) -> np.ndarray:
+def make_pairs_gain_sampled(qids, labels, pairs_per_query: int, rng: np.random.RandomState,
+                            power: float = 1.0) -> np.ndarray:
     """like make_pairs, but when a query has more candidate pairs than the cap, sample them with
-    probability proportional to the gain gap 2^l_hi - 2^l_lo (favours pairs with a highly relevant doc)"""
+    probability proportional to (2^l_hi - 2^l_lo)^power (favours pairs with a highly relevant doc)"""
     lab_all = np.asarray(labels)
     out = []
     for rows in _query_rows(qids):
@@ -225,7 +226,7 @@ def make_pairs_gain_sampled(qids, labels, pairs_per_query: int, rng: np.random.R
         if len(cand) == 0:
             continue
         if len(cand) > pairs_per_query:
-            gap = (2.0 ** lab_all[cand[:, 0]]) - (2.0 ** lab_all[cand[:, 1]])
+            gap = ((2.0 ** lab_all[cand[:, 0]]) - (2.0 ** lab_all[cand[:, 1]])) ** power
             cand = cand[rng.choice(len(cand), pairs_per_query, replace=False, p=gap / gap.sum())]
         out.append(cand)
     if not out:
@@ -267,7 +268,7 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
     dev=None -> no early stopping, run exactly `epochs` epochs (used for the final refit
     on all of TRAIN once the epoch count is picked on a TRAIN holdout).
     Track P options (defaults = textbook RankNet):
-      sampler   'uniform' (make_pairs) | 'gain' (make_pairs_gain_sampled)
+      sampler   'uniform' (make_pairs) | 'gain' / 'gain2' (make_pairs_gain_sampled, power 1 / 2)
       weighting 'none' | 'lambda' (|delta nDCG| per pair, recomputed every epoch -> LambdaRank)
       lambda_top  truncation rank for the lambda discount, 0 = whole list
       weight_decay  Adam L2
@@ -285,7 +286,13 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
     network = ScoringNetwork(X.shape[1], hidden)
     optimizer = torch.optim.Adam(network.parameters(), lr=lr, weight_decay=weight_decay)
     rng = np.random.RandomState(seed)
-    pair_fn = make_pairs_gain_sampled if sampler == "gain" else make_pairs
+    if sampler == "gain":
+        pair_fn = make_pairs_gain_sampled
+    elif sampler == "gain2":
+        def pair_fn(qq, yy, ppq, r):
+            return make_pairs_gain_sampled(qq, yy, ppq, r, power=2.0)
+    else:
+        pair_fn = make_pairs
     qindex = _QueryIndex(q, y) if (kind == "pairwise" and weighting == "lambda") else None
 
     history = []
