@@ -52,6 +52,11 @@ def _grid(name):
         out += [{"lambdarank_truncation_level": t, "num_leaves": 31, "min_data_in_leaf": 50,
                  "feature_fraction": 0.5, "max_trees": 800} for t in (10, 20)]
         return out
+    if name == "stage3":
+        # stage2: qz +0.004 at lr .1, lr .05 +0.002 on raw. combine them; 2000 trees covers the peak
+        return [{"transform": "raw+qz", "learning_rate": 0.05, "num_leaves": l, "min_data_in_leaf": md,
+                 "feature_fraction": ff, "max_trees": 2000}
+                for l, md, ff in ((31, 50, 0.5), (63, 200, 0.5), (31, 50, 0.3))]
     if name == "transform":
         return [{"transform": t, "num_leaves": l, "min_data_in_leaf": 200, "max_trees": 800}
                 for t in ("raw", "raw+qz") for l in (31, 127)]

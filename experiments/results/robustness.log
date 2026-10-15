@@ -1,0 +1,9 @@
+raw_31_lr.1_400 0 {'clean': 0.4845, 'noise': 0.4698, 'dropcol': 0.4598, 'missing': 0.439, 'scale': 0.4489, 'subpool': 0.5123}
+qz_31_lr.1_300 0 {'clean': 0.4896, 'noise': 0.4746, 'dropcol': 0.4716, 'missing': 0.4285, 'scale': 0.4656, 'subpool': 0.5074}
+raw_127_lr.1_200 0 {'clean': 0.486, 'noise': 0.4692, 'dropcol': 0.4546, 'missing': 0.4376, 'scale': 0.451, 'subpool': 0.514}
+raw_31_lr.1_400 1 {'clean': 0.4664, 'noise': 0.4532, 'dropcol': 0.444, 'missing': 0.4136, 'scale': 0.4473, 'subpool': 0.4848}
+qz_31_lr.1_300 1 {'clean': 0.4719, 'noise': 0.4584, 'dropcol': 0.454, 'missing': 0.415, 'scale': 0.4595, 'subpool': 0.486}
+raw_127_lr.1_200 1 {'clean': 0.4636, 'noise': 0.454, 'dropcol': 0.435, 'missing': 0.4129, 'scale': 0.4515, 'subpool': 0.4816}
+raw_31_lr.1_400 2 {'clean': 0.4773, 'noise': 0.4589, 'dropcol': 0.4607, 'missing': 0.417, 'scale': 0.4704, 'subpool': 0.5023}
+qz_31_lr.1_300 2 {'clean': 0.4817, 'noise': 0.4648, 'dropcol': 0.467, 'missing': 0.4306, 'scale': 0.4775, 'subpool': 0.5065}
+raw_127_lr.1_200 2 {'clean': 0.4703, 'noise': 0.4563, 'dropcol': 0.4487, 'missing': 0.4127, 'scale': 0.465, 'subpool': 0.4983}
