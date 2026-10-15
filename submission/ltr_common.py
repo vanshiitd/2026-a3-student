@@ -13,12 +13,23 @@ import numpy as np
 
 # ---------------------------------------------------------------- reading
 
+_CHUNK = 20_000  # lines per dense block, keeps peak memory ~ final X + one block
+
+
+def _dense_block(rows, width):
+    block = np.zeros((len(rows), width), dtype=np.float32)
+    for r, (idx, val) in enumerate(rows):
+        if len(idx):
+            block[r, idx - 1] = val
+    return block
+
+
 def read_ltr(path: str, n_features: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """returns (X float32 [rows, D], y int64, qids object array), file order kept.
     sparse lines ok (missing features = 0), trailing '# comment' ignored.
     D = n_features if given else the largest feature index seen."""
-    labels, qids, rows = [], [], []
-    max_idx = 0
+    labels, qids, blocks, rows = [], [], [], []
+    max_idx, block_max = 0, 0
     with open(path, "r", encoding="utf-8") as f:
         for line_no, line in enumerate(f, start=1):
             line = line.split("#", 1)[0].strip()
@@ -30,21 +41,31 @@ def read_ltr(path: str, n_features: Optional[int] = None) -> Tuple[np.ndarray, n
             labels.append(int(float(parts[0])))
             qids.append(parts[1][4:])
             if len(parts) == 3:
-                # "i:v i:v ..." -> "i v i v ..." then one C-level parse
+                # "i:v i:v ..." -> "i v i v ..." then numpy does the float parsing
                 arr = np.array(parts[2].replace(":", " ").split(), dtype=np.float64)
                 idx = arr[0::2].astype(np.int64)
-                if len(idx) and idx.max() > max_idx:
-                    max_idx = int(idx.max())
+                if len(idx):
+                    block_max = max(block_max, int(idx.max()))
                 rows.append((idx, arr[1::2]))
             else:
                 rows.append((np.zeros(0, np.int64), np.zeros(0)))
+            if len(rows) == _CHUNK:
+                blocks.append(_dense_block(rows, block_max))
+                max_idx, block_max, rows = max(max_idx, block_max), 0, []
+    if rows:
+        blocks.append(_dense_block(rows, block_max))
+        max_idx = max(max_idx, block_max)
+
     width = max_idx if n_features is None else int(n_features)
     if max_idx > width:
         raise ValueError(f"{path}: feature index {max_idx} > n_features={width}")
-    X = np.zeros((len(rows), width), dtype=np.float32)
-    for r, (idx, val) in enumerate(rows):
-        if len(idx):
-            X[r, idx - 1] = val
+    X = np.zeros((len(labels), width), dtype=np.float32)
+    start = 0
+    blocks.reverse()
+    while blocks:  # pop as we copy so blocks get freed
+        b = blocks.pop()
+        X[start:start + len(b), :b.shape[1]] = b
+        start += len(b)
     return X, np.asarray(labels, dtype=np.int64), np.asarray(qids, dtype=object)
 
 

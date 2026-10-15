@@ -145,6 +145,107 @@ def pairwise_step(network: nn.Module, optimizer, x_preferred: torch.Tensor, x_ot
     return float(loss.item())
 
 
+# ---- Track P extras (not graded by name; ranknet_loss / make_pairs above stay textbook) ----------
+
+def weighted_ranknet_loss(s_preferred: torch.Tensor, s_other: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+    """RankNet loss with a weight per pair, normalised by the weight sum. With w = |delta nDCG| this is
+    LambdaRank's gradient direction. w = all ones gives back plain ranknet_loss."""
+    per_pair = torch.nn.functional.softplus(-(s_preferred - s_other))
+    return (w * per_pair).sum() / w.sum().clamp_min(1e-12)
+
+
+def weighted_pairwise_step(network: nn.Module, optimizer, x_preferred, x_other, w) -> float:
+    network.train()
+    optimizer.zero_grad()
+    loss = weighted_ranknet_loss(network(x_preferred), network(x_other), w)
+    loss.backward()
+    optimizer.step()
+    return float(loss.item())
+
+
+class _QueryIndex:
+    """per-row integer query codes + per-query ideal DCG, built once per training run"""
+
+    def __init__(self, qids, labels):
+        codes, uniq = {}, []
+        self.code = np.empty(len(qids), dtype=np.int64)
+        for i, q in enumerate(qids):
+            if q not in codes:
+                codes[q] = len(uniq)
+                uniq.append(q)
+            self.code[i] = codes[q]
+        self.labels = np.asarray(labels, dtype=np.int64)
+        self.gain = (2.0 ** self.labels) - 1.0
+        n_q = len(uniq)
+        # ideal DCG over the full list (untruncated), per query
+        order = np.lexsort((-self.gain, self.code))
+        pos = _positions_within_group(self.code[order])
+        disc = 1.0 / np.log2(pos + 1.0)
+        self.idcg = np.bincount(self.code[order], weights=self.gain[order] * disc, minlength=n_q)
+
+    def ranks(self, scores: np.ndarray) -> np.ndarray:
+        """1-based rank of each row inside its query under `scores` (ties by row order)"""
+        order = np.lexsort((np.arange(len(scores)), -scores, self.code))
+        r = np.empty(len(scores), dtype=np.float64)
+        r[order] = _positions_within_group(self.code[order])
+        return r
+
+
+def _positions_within_group(sorted_codes: np.ndarray) -> np.ndarray:
+    """1,2,3.. restarting at every new code (codes already sorted)"""
+    n = len(sorted_codes)
+    starts = np.r_[True, sorted_codes[1:] != sorted_codes[:-1]]
+    first = np.maximum.accumulate(np.where(starts, np.arange(n), 0))
+    return (np.arange(n) - first + 1).astype(np.float64)
+
+
+def lambda_weights(pairs: np.ndarray, qindex: "_QueryIndex", scores: np.ndarray, top: int = 0) -> np.ndarray:
+    """|delta nDCG| if the two docs of each pair swapped places under the current scores.
+    top > 0 truncates the discount at that rank (nDCG@top); 0 = full-list discount."""
+    r = qindex.ranks(scores)
+    hi, lo = pairs[:, 0], pairs[:, 1]
+
+    def disc(rank):
+        d = 1.0 / np.log2(rank + 1.0)
+        return np.where(rank <= top, d, 0.0) if top > 0 else d
+
+    dg = np.abs(qindex.gain[hi] - qindex.gain[lo])
+    dd = np.abs(disc(r[hi]) - disc(r[lo]))
+    idcg = qindex.idcg[qindex.code[hi]]
+    return dg * dd / np.maximum(idcg, 1e-12)
+
+
+def make_pairs_gain_sampled(qids, labels, pairs_per_query: int, rng: np.random.RandomState) -> np.ndarray:
+    """like make_pairs, but when a query has more candidate pairs than the cap, sample them with
+    probability proportional to the gain gap 2^l_hi - 2^l_lo (favours pairs with a highly relevant doc)"""
+    lab_all = np.asarray(labels)
+    out = []
+    for rows in _query_rows(qids):
+        cand = _candidate_pairs(rows, lab_all[rows])
+        if len(cand) == 0:
+            continue
+        if len(cand) > pairs_per_query:
+            gap = (2.0 ** lab_all[cand[:, 0]]) - (2.0 ** lab_all[cand[:, 1]])
+            cand = cand[rng.choice(len(cand), pairs_per_query, replace=False, p=gap / gap.sum())]
+        out.append(cand)
+    if not out:
+        return np.zeros((0, 2), dtype=np.int64)
+    return np.concatenate(out).astype(np.int64)
+
+
+def fit_robust_standardizer(X: np.ndarray) -> Standardizer:
+    """Standardizer variant for heavy-tailed features: centre on the median, scale by a high-quantile
+    spread instead of the std, so a few huge values (click counts etc.) don't squash everything else.
+    Same {mean, std} artifact format, so the staff loader is unchanged."""
+    med = np.median(X, axis=0).astype(np.float64)
+    q_lo, q_hi = np.percentile(X, [5, 95], axis=0)
+    spread = ((q_hi - q_lo) / 3.29).astype(np.float64)  # 90% range of a normal is 3.29 sd
+    std = X.std(axis=0).astype(np.float64)
+    spread = np.where(spread < 1e-8, std, spread)
+    spread[spread < 1e-8] = 1.0
+    return Standardizer(med, spread)
+
+
 # ---- provided helpers -------------------------------------------------------
 
 def dev_ndcg(scorer: Callable[[np.ndarray], np.ndarray], X, y, qids) -> float:
@@ -157,49 +258,78 @@ def dev_ndcg(scorer: Callable[[np.ndarray], np.ndarray], X, y, qids) -> float:
 
 def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch_size: int = 1024,
                 lr: float = 1e-3, pairs_per_query: int = 300, patience: int = 3, hidden=64,
-                verbose: bool = False):
+                verbose: bool = False, sampler: str = "uniform", weighting: str = "none",
+                lambda_top: int = 0, weight_decay: float = 0.0, scaler: str = "standard"):
     """Train a 'pointwise' or 'pairwise' scorer. train / dev are (X_raw, y, qids)
     tuples. Returns (network, standardizer, history) with the best-dev-nDCG
-    weights restored. The setup below is PROVIDED; the loop is yours (TODO(6))."""
+    weights restored.
+
+    dev=None -> no early stopping, run exactly `epochs` epochs (used for the final refit
+    on all of TRAIN once the epoch count is picked on a TRAIN holdout).
+    Track P options (defaults = textbook RankNet):
+      sampler   'uniform' (make_pairs) | 'gain' (make_pairs_gain_sampled)
+      weighting 'none' | 'lambda' (|delta nDCG| per pair, recomputed every epoch -> LambdaRank)
+      lambda_top  truncation rank for the lambda discount, 0 = whole list
+      weight_decay  Adam L2
+      scaler    'standard' | 'robust' (median / quantile spread, same artifact format)"""
     if kind not in ("pointwise", "pairwise"):
         raise ValueError("kind must be 'pointwise' or 'pairwise'")
     X, y, q = train
-    Xd, yd, qd = dev
-    set_seed(seed)                                    # TODO(1) makes this meaningful
-    standardizer = Standardizer().fit(X)              # fit on TRAIN only
+    set_seed(seed)
+    if scaler == "robust":
+        standardizer = fit_robust_standardizer(X)  # fit on TRAIN only
+    else:
+        standardizer = Standardizer().fit(X)       # fit on TRAIN only
     Xt = torch.from_numpy(standardizer.transform(X))
     yt = torch.from_numpy(np.asarray(y, dtype=np.float32))
     network = ScoringNetwork(X.shape[1], hidden)
-    optimizer = torch.optim.Adam(network.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(network.parameters(), lr=lr, weight_decay=weight_decay)
     rng = np.random.RandomState(seed)
+    pair_fn = make_pairs_gain_sampled if sampler == "gain" else make_pairs
+    qindex = _QueryIndex(q, y) if (kind == "pairwise" and weighting == "lambda") else None
 
     history = []
     best_nd, best_state, bad_epochs = -1.0, copy.deepcopy(network.state_dict()), 0
     for epoch in range(1, epochs + 1):
-        network.train()
         if kind == "pairwise":
-            examples = make_pairs(q, y, pairs_per_query, rng)
+            examples = pair_fn(q, y, pairs_per_query, rng)
         else:
             examples = np.arange(len(y))
         examples = examples[rng.permutation(len(examples))]  # reshuffle every epoch
 
+        weights = None
+        if qindex is not None:
+            # scores frozen at the start of the epoch, good enough for the swap weights
+            network.eval()
+            with torch.no_grad():
+                cur = network(Xt).numpy().astype(np.float64)
+            weights = torch.from_numpy(lambda_weights(examples, qindex, cur, lambda_top).astype(np.float32))
+
+        network.train()
         losses = []
         for start in range(0, len(examples), batch_size):
             batch = examples[start:start + batch_size]
-            if kind == "pairwise":
-                bt = torch.from_numpy(batch)
+            bt = torch.from_numpy(batch)
+            if kind == "pairwise" and weights is not None:
+                losses.append(weighted_pairwise_step(network, optimizer, Xt[bt[:, 0]], Xt[bt[:, 1]],
+                                                     weights[start:start + batch_size]))
+            elif kind == "pairwise":
                 losses.append(pairwise_step(network, optimizer, Xt[bt[:, 0]], Xt[bt[:, 1]]))
             else:
-                bt = torch.from_numpy(batch)
                 losses.append(pointwise_step(network, optimizer, Xt[bt], yt[bt]))
 
-        nd = dev_ndcg(make_scorer(network, standardizer), Xd, yd, qd)
-        history.append({"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else float("nan"),
-                        "dev_ndcg@10": nd})
+        rec = {"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else float("nan")}
+        if dev is not None:
+            rec["dev_ndcg@10"] = dev_ndcg(make_scorer(network, standardizer), *dev)
+        history.append(rec)
         if verbose:
-            print(f"  {kind} epoch {epoch:2d}  loss {history[-1]['train_loss']:.4f}  dev nDCG@10 {nd:.4f}")
+            print(f"  {kind} epoch {epoch:2d}  loss {rec['train_loss']:.4f}  "
+                  f"dev nDCG@10 {rec.get('dev_ndcg@10', float('nan')):.4f}", flush=True)
 
+        if dev is None:
+            continue
         # early stopping on the dev split given (keep best weights)
+        nd = rec["dev_ndcg@10"]
         if nd > best_nd:
             best_nd, best_state, bad_epochs = nd, copy.deepcopy(network.state_dict()), 0
         else:
@@ -207,5 +337,6 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
             if bad_epochs >= patience:
                 break
 
-    network.load_state_dict(best_state)
+    if dev is not None:
+        network.load_state_dict(best_state)
     return network, standardizer, history
