@@ -11,3 +11,4 @@ data/cache/
 
 # scratch outputs
 runs/
+dist/
