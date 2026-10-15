@@ -19,22 +19,29 @@ first, using ONLY doc_ids from `candidate_doc_ids`, with no duplicates.
 import os
 from typing import Dict, List, Tuple
 
+# imported up here on purpose: on macOS, loading lightgbm after torch crashes (two libomp copies).
+# harmless on linux
+import lightgbm as lgb
 import numpy as np
 
 from submission.fusion import rrf_scores
+from submission.ltr_common import apply_transform, pad_to, parse_names
 
 _MODEL = None
+_N_RAW = 0             # raw feature count the model expects
+_TRANSFORM = "raw"     # feature transform it was trained with (read from its feature names)
 
 
 def prepare(model_path: str) -> None:
-    global _MODEL
+    global _MODEL, _N_RAW, _TRANSFORM
     if not os.path.isfile(model_path):
         raise FileNotFoundError(
             f"trained model artifact not found at {model_path!r}; run scripts/train_model.py and "
             f"include the artifact in your submission (grading never retrains)"
         )
-    import lightgbm as lgb
-    _MODEL = lgb.Booster(model_file=model_path)
+    model = lgb.Booster(model_file=model_path)
+    _N_RAW, _TRANSFORM = parse_names(model.feature_name())
+    _MODEL = model
 
 
 def _unique(ids: List[str]) -> List[str]:
@@ -58,9 +65,16 @@ def rerank_with_ltr(qid: str, candidate_doc_ids: List[str], features: Dict[str, 
     if _MODEL is None:
         raise RuntimeError("call prepare(model_path) first")
     ids = _unique(candidate_doc_ids)
-    if not ids:
+    if not ids or k <= 0:
         return []
-    X = np.asarray([features[d] for d in ids], dtype=np.float64)
+    width = max(len(features[d]) for d in ids)
+    X = np.zeros((len(ids), width), dtype=np.float32)
+    for r, d in enumerate(ids):
+        row = features[d]
+        X[r, :len(row)] = row
+    # files can drop trailing all-zero features, so match the width the model was trained on
+    X = pad_to(X, _N_RAW)
+    X = apply_transform(X, [qid] * len(ids), _TRANSFORM)
     preds = _MODEL.predict(X)
-    order = np.argsort(-preds, kind="stable")
+    order = np.argsort(-preds, kind="stable")  # ties keep candidate order
     return [(ids[i], float(preds[i])) for i in order[:k]]

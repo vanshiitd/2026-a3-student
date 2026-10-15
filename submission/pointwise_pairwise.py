@@ -52,17 +52,19 @@ from harness.neural import MAX_HIDDEN_LAYERS, MAX_WIDTH, ScoringNetwork, load_sc
 
 
 def set_seed(seed: int) -> None:
-    """TODO(1): make training reproducible -- seed Python's `random`, NumPy,
-    and torch (torch.manual_seed). Staff check two runs with the same seed
+    """Seed python `random`, numpy and torch so two runs with the same seed
     give identical weights."""
-    raise NotImplementedError("TODO(1): set_seed")
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 def pointwise_loss(scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    """TODO(2): mean squared error between predicted scores and graded labels
+    """Mean squared error between predicted scores and graded labels
     (both 1-D tensors of equal length). Returns a scalar tensor.
     Example: scores=[1, 2], labels=[0, 2] -> ((1-0)^2 + (2-2)^2) / 2 = 0.5"""
-    raise NotImplementedError("TODO(2): pointwise_loss")
+    labels = labels.to(scores.dtype)
+    return ((scores - labels) ** 2).mean()
 
 
 def make_pairs(qids, labels, pairs_per_query: int, rng: np.random.RandomState) -> np.ndarray:
@@ -79,34 +81,68 @@ def make_pairs(qids, labels, pairs_per_query: int, rng: np.random.RandomState) -
     reproducible. Never build the pairs of the whole TRAIN split at once.
     Example: qids=[a,a,a,b,b], labels=[2,0,1,1,1], pairs_per_query large ->
     the 3 pairs (0,1), (0,2), (2,1); query b has only ties -> no pairs."""
-    raise NotImplementedError("TODO(3): make_pairs")
+    out = []
+    for rows in _query_rows(qids):
+        cand = _candidate_pairs(rows, np.asarray(labels)[rows])
+        if len(cand) == 0:
+            continue
+        if len(cand) > pairs_per_query:
+            cand = cand[rng.choice(len(cand), pairs_per_query, replace=False)]
+        out.append(cand)
+    if not out:
+        return np.zeros((0, 2), dtype=np.int64)
+    return np.concatenate(out).astype(np.int64)
+
+
+def _query_rows(qids) -> List[np.ndarray]:
+    """row indices of each query, queries in first-seen order (rows can be anywhere)"""
+    groups: Dict = {}
+    for i, q in enumerate(qids):
+        groups.setdefault(q, []).append(i)
+    return [np.asarray(r, dtype=np.int64) for r in groups.values()]
+
+
+def _candidate_pairs(rows: np.ndarray, lab: np.ndarray) -> np.ndarray:
+    """all strictly ordered pairs of one query, more relevant row first"""
+    a, b = np.triu_indices(len(rows), k=1)
+    keep = lab[a] != lab[b]
+    a, b = a[keep], b[keep]
+    swap = lab[a] < lab[b]
+    hi = np.where(swap, b, a)
+    lo = np.where(swap, a, b)
+    return np.stack([rows[hi], rows[lo]], axis=1)
 
 
 def ranknet_loss(s_preferred: torch.Tensor, s_other: torch.Tensor) -> torch.Tensor:
-    """TODO(4): RankNet loss. For each pair, log(1 + exp(-(s_i - s_j))), where
-    s_preferred = s_i is the score of the more relevant document. Average over
-    the pairs (scalar tensor). Use a numerically stable form -- softplus(-d) or
-    torch.logaddexp(0, -d) with d = s_i - s_j -- not a raw exp.
+    """RankNet loss. For each pair, log(1 + exp(-(s_i - s_j))), where
+    s_preferred = s_i is the score of the more relevant document, averaged over
+    the pairs. softplus(-d) is the stable form of log(1 + e^-d).
     Example: s_preferred=[2, 0], s_other=[0, 0] ->
     mean(log(1+e^-2), log 2) = mean(0.126928, 0.693147) = 0.410038"""
-    raise NotImplementedError("TODO(4): ranknet_loss")
+    return torch.nn.functional.softplus(-(s_preferred - s_other)).mean()
 
 
 def pointwise_step(network: nn.Module, optimizer, x: torch.Tensor, y: torch.Tensor) -> float:
-    """TODO(5): ONE optimisation step on a minibatch of documents: zero the
-    gradients, forward pass, pointwise_loss, loss.backward(), optimizer.step().
-    Return the loss as a float. (Forgetting optimizer.zero_grad() is the classic
-    bug: gradients silently accumulate across batches.)"""
-    raise NotImplementedError("TODO(5): pointwise_step")
+    """ONE optimisation step on a minibatch of documents: zero grads, forward,
+    pointwise_loss, backward, step. Returns the loss as a float."""
+    network.train()
+    optimizer.zero_grad()
+    loss = pointwise_loss(network(x), y)
+    loss.backward()
+    optimizer.step()
+    return float(loss.item())
 
 
 def pairwise_step(network: nn.Module, optimizer, x_preferred: torch.Tensor, x_other: torch.Tensor) -> float:
-    """TODO(5): ONE optimisation step on a minibatch of PAIRS. x_preferred /
-    x_other are (batch, n_features) feature tensors of each pair's more / less
-    relevant document. Run both through the SAME network (shared weights),
-    ranknet_loss on the two score vectors, backward, step. Return the loss as a
-    float. Staff check one step on a pair raises s_preferred - s_other."""
-    raise NotImplementedError("TODO(5): pairwise_step")
+    """ONE optimisation step on a minibatch of PAIRS. Both sides go through the
+    SAME network (shared weights), then ranknet_loss, backward, step. Returns
+    the loss as a float."""
+    network.train()
+    optimizer.zero_grad()
+    loss = ranknet_loss(network(x_preferred), network(x_other))
+    loss.backward()
+    optimizer.step()
+    return float(loss.item())
 
 
 # ---- provided helpers -------------------------------------------------------
@@ -138,19 +174,38 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
     rng = np.random.RandomState(seed)
 
     history = []
-    # TODO(6): for each epoch (at most `epochs`):
-    #   a) network.train(); build this epoch's training examples --
-    #        pairwise : pairs = make_pairs(q, y, pairs_per_query, rng)
-    #        pointwise: all document row indices
-    #      and RESHUFFLE them (use rng.permutation) so one query's examples are
-    #      not adjacent;
-    #   b) loop over minibatches of `batch_size` examples, building the feature
-    #      tensors from Xt (and yt for pointwise) and calling pairwise_step /
-    #      pointwise_step; keep the batch losses to average;
-    #   c) after the epoch, nd = dev_ndcg(make_scorer(network, standardizer), Xd, yd, qd)
-    #      and append {"epoch", "train_loss", "dev_ndcg@10"} to `history`;
-    #   d) early stopping: remember the best dev nDCG@10 and a deep copy of
-    #      network.state_dict(); stop after `patience` epochs without improvement;
-    #   e) at the end restore the best weights: network.load_state_dict(best_state).
-    raise NotImplementedError("TODO(6): the training loop in train_model")
+    best_nd, best_state, bad_epochs = -1.0, copy.deepcopy(network.state_dict()), 0
+    for epoch in range(1, epochs + 1):
+        network.train()
+        if kind == "pairwise":
+            examples = make_pairs(q, y, pairs_per_query, rng)
+        else:
+            examples = np.arange(len(y))
+        examples = examples[rng.permutation(len(examples))]  # reshuffle every epoch
+
+        losses = []
+        for start in range(0, len(examples), batch_size):
+            batch = examples[start:start + batch_size]
+            if kind == "pairwise":
+                bt = torch.from_numpy(batch)
+                losses.append(pairwise_step(network, optimizer, Xt[bt[:, 0]], Xt[bt[:, 1]]))
+            else:
+                bt = torch.from_numpy(batch)
+                losses.append(pointwise_step(network, optimizer, Xt[bt], yt[bt]))
+
+        nd = dev_ndcg(make_scorer(network, standardizer), Xd, yd, qd)
+        history.append({"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else float("nan"),
+                        "dev_ndcg@10": nd})
+        if verbose:
+            print(f"  {kind} epoch {epoch:2d}  loss {history[-1]['train_loss']:.4f}  dev nDCG@10 {nd:.4f}")
+
+        # early stopping on the dev split given (keep best weights)
+        if nd > best_nd:
+            best_nd, best_state, bad_epochs = nd, copy.deepcopy(network.state_dict()), 0
+        else:
+            bad_epochs += 1
+            if bad_epochs >= patience:
+                break
+
+    network.load_state_dict(best_state)
     return network, standardizer, history

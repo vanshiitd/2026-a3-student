@@ -1,0 +1,13 @@
+# local env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# real MSLR data: never commit (spec: do not submit data files)
+data/train/
+data/dev/
+data/cache/
+
+# scratch outputs
+runs/
