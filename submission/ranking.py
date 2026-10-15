@@ -24,7 +24,7 @@ from typing import Dict, List, Tuple
 import lightgbm as lgb
 import numpy as np
 
-from submission.fusion import rrf_scores
+from submission.fusion import combsum_scores, rrf_scores
 from submission.ltr_common import apply_transform, pad_to, parse_names
 
 _MODEL = None
@@ -48,14 +48,24 @@ def _unique(ids: List[str]) -> List[str]:
     return list(dict.fromkeys(ids))
 
 
+# fusion picked on TRAIN only (experiments/fusion_fast.py, 2025 configs): CombSUM over min-max scores,
+# equal weights, LMIR.JM left out -- it's the weakest channel and nearly a copy of LMIR.DIR.
+# TRAIN nDCG@10 0.3000 vs 0.2961 with all four channels; one DEV read: 0.3105 / MAP@10 0.1302
+FUSION_WEIGHTS = {"bm25_whole_document": 1.0, "bm25_title": 1.0, "lmir_dir_whole_document": 1.0,
+                  "lmir_jm_whole_document": 0.0}
+
+
 def fuse_candidates(qid: str, candidate_doc_ids: List[str], base_scores: Dict[str, Dict[str, float]],
                     k: int) -> List[Tuple[str, float]]:
     ids = _unique(candidate_doc_ids)
-    try:
-        fused = rrf_scores({d: base_scores[d] for d in ids})
-    except NotImplementedError:
-        # stand-in until you implement rrf_scores (TODO(fusion-0)): sort by the BM25 channel
-        fused = {d: base_scores[d]["bm25_whole_document"] for d in ids}
+    if not ids or k <= 0:
+        return []
+    pool = {d: base_scores[d] for d in ids}
+    channels = [c for c in FUSION_WEIGHTS if c in next(iter(pool.values()))]
+    if channels:
+        fused = combsum_scores(pool, channels=channels, weights=FUSION_WEIGHTS)
+    else:  # unknown channel names: fall back to plain RRF over whatever we got
+        fused = rrf_scores(pool)
     ranked = sorted(ids, key=lambda d: -fused[d])  # stable: ties keep candidate order
     return [(d, fused[d]) for d in ranked[:k]]
 

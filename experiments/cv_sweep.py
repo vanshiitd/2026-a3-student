@@ -39,7 +39,7 @@ def _grid(name):
     if name == "stage1":
         # coarse shape search at lr 0.1: capacity vs regularisation
         out = []
-        for leaves, md, ff in itertools.product([15, 31, 63, 127, 255], [50, 200, 800], [0.5, 0.8]):
+        for leaves, md, ff in itertools.product([31, 127, 255], [50, 400], [0.5, 0.8]):
             out.append({"num_leaves": leaves, "min_data_in_leaf": md, "feature_fraction": ff, "max_trees": 800})
         return out
     if name == "transform":
@@ -74,11 +74,19 @@ def _job(args):
     fit_s = time.time() - t0
     bva, btr = query_bounds(qva), query_bounds(qtr)
     rows = []
+    # scores are a sum over trees, so add each slice of trees once instead of re-predicting from tree 0
+    s_va, s_tr = np.zeros(len(yva)), np.zeros(len(ytr))
+    done_va = done_tr = 0
+    train_pts = {50, 100, 200, 400, 800, 1500, 3000, cfg["max_trees"]}
     for n in _checkpoints(cfg["max_trees"]):
-        va = ndcg10_per_query(booster.predict(Xva, num_iteration=n), yva, bva)
-        rec = {"cfg": cfg, "fold": fold, "trees": n, "val": float(va.mean()), "fit_s": fit_s}
-        if n in (50, 100, 200, 400, 800, 1500, 3000) or n == cfg["max_trees"]:
-            rec["train"] = float(ndcg10_per_query(booster.predict(Xtr, num_iteration=n), ytr, btr).mean())
+        s_va += booster.predict(Xva, start_iteration=done_va, num_iteration=n - done_va, raw_score=True)
+        done_va = n
+        rec = {"cfg": cfg, "fold": fold, "trees": n, "val": float(ndcg10_per_query(s_va, yva, bva).mean()),
+               "fit_s": fit_s}
+        if n in train_pts:
+            s_tr += booster.predict(Xtr, start_iteration=done_tr, num_iteration=n - done_tr, raw_score=True)
+            done_tr = n
+            rec["train"] = float(ndcg10_per_query(s_tr, ytr, btr).mean())
         rows.append(rec)
     return rows
 

@@ -1,0 +1,5 @@
+built p1_small_46f_l3: 350 queries, 46 features, labels 0-2
+built p2_small_60f_l5: 600 queries, 70 features, labels 0-4
+built p3_mid_90f_l5: 1500 queries, 110 features, labels 0-4
+built p4_mid_136f_l3: 2000 queries, 136 features, labels 0-2
+built p5_big_220f_l5: 4000 queries, 220 features, labels 0-4

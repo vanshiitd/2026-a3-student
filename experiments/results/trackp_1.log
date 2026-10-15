@@ -1,0 +1,30 @@
+  pairwise epoch  1  loss 0.6075  dev nDCG@10 0.4180
+  pairwise epoch  2  loss 0.6000  dev nDCG@10 0.4289
+  pairwise epoch  3  loss 0.5963  dev nDCG@10 0.4086
+  pairwise epoch  4  loss 0.5945  dev nDCG@10 0.4292
+  pairwise epoch  5  loss 0.5929  dev nDCG@10 0.4248
+  pairwise epoch  6  loss 0.5911  dev nDCG@10 0.4257
+  pairwise epoch  7  loss 0.5900  dev nDCG@10 0.4234
+  pairwise epoch  8  loss 0.5894  dev nDCG@10 0.4225
+base                 holdout 0.4292 @ep4  DEV 0.4318  39s
+  pointwise epoch  1  loss 0.6017  dev nDCG@10 0.4047
+  pointwise epoch  2  loss 0.5987  dev nDCG@10 0.4081
+  pointwise epoch  3  loss 0.5701  dev nDCG@10 0.4212
+  pointwise epoch  4  loss 0.5680  dev nDCG@10 0.4164
+  pointwise epoch  5  loss 0.5686  dev nDCG@10 0.4133
+  pointwise epoch  6  loss 0.5736  dev nDCG@10 0.4208
+  pointwise epoch  7  loss 0.5647  dev nDCG@10 0.4288
+  pointwise epoch  8  loss 0.5624  dev nDCG@10 0.4156
+  pointwise epoch  9  loss 0.5638  dev nDCG@10 0.4260
+  pointwise epoch 10  loss 0.5642  dev nDCG@10 0.4248
+  pointwise epoch 11  loss 0.5664  dev nDCG@10 0.4225
+pointwise            holdout 0.4288 @ep7  DEV 0.4251  9s
+  pairwise epoch  1  loss 0.5434  dev nDCG@10 0.4115
+  pairwise epoch  2  loss 0.4059  dev nDCG@10 0.4223
+  pairwise epoch  3  loss 0.3886  dev nDCG@10 0.4241
+  pairwise epoch  4  loss 0.3788  dev nDCG@10 0.4286
+  pairwise epoch  5  loss 0.3670  dev nDCG@10 0.4223
+  pairwise epoch  6  loss 0.3603  dev nDCG@10 0.4178
+  pairwise epoch  7  loss 0.3557  dev nDCG@10 0.4224
+  pairwise epoch  8  loss 0.3480  dev nDCG@10 0.4219
+lambda               holdout 0.4286 @ep4  DEV 0.4239  45s
