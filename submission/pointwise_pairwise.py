@@ -63,7 +63,9 @@ def pointwise_loss(scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """Mean squared error between predicted scores and graded labels
     (both 1-D tensors of equal length). Returns a scalar tensor.
     Example: scores=[1, 2], labels=[0, 2] -> ((1-0)^2 + (2-2)^2) / 2 = 0.5"""
-    labels = labels.to(scores.dtype)
+    scores, labels = scores.reshape(-1), labels.reshape(-1).to(scores.dtype)  # (n,1) vs (n,) would broadcast
+    if scores.shape != labels.shape:
+        raise ValueError(f"pointwise_loss: {scores.numel()} scores vs {labels.numel()} labels")
     return ((scores - labels) ** 2).mean()
 
 
@@ -81,9 +83,10 @@ def make_pairs(qids, labels, pairs_per_query: int, rng: np.random.RandomState) -
     reproducible. Never build the pairs of the whole TRAIN split at once.
     Example: qids=[a,a,a,b,b], labels=[2,0,1,1,1], pairs_per_query large ->
     the 3 pairs (0,1), (0,2), (2,1); query b has only ties -> no pairs."""
+    lab_all = np.asarray(labels)  # once, not per query (lists would make this O(rows x queries))
     out = []
     for rows in _query_rows(qids):
-        cand = _candidate_pairs(rows, np.asarray(labels)[rows])
+        cand = _candidate_pairs(rows, lab_all[rows])
         if len(cand) == 0:
             continue
         if len(cand) > pairs_per_query:
@@ -119,6 +122,9 @@ def ranknet_loss(s_preferred: torch.Tensor, s_other: torch.Tensor) -> torch.Tens
     the pairs. softplus(-d) is the stable form of log(1 + e^-d).
     Example: s_preferred=[2, 0], s_other=[0, 0] ->
     mean(log(1+e^-2), log 2) = mean(0.126928, 0.693147) = 0.410038"""
+    s_preferred, s_other = s_preferred.reshape(-1), s_other.reshape(-1)  # no silent (n,1) x (n,) broadcast
+    if s_preferred.shape != s_other.shape:
+        raise ValueError(f"ranknet_loss: {s_preferred.numel()} vs {s_other.numel()} scores")
     return torch.nn.functional.softplus(-(s_preferred - s_other)).mean()
 
 

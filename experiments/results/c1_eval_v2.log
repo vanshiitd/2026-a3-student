@@ -1,0 +1,5 @@
+p1_small_46f_l3    base       test nDCG@10 0.4668      5s  picked {'num_leaves': 31, 'min_data_in_leaf': 20} iter 75
+p2_small_60f_l5    base       test nDCG@10 0.4105      9s  picked {'num_leaves': 15, 'min_data_in_leaf': 27} iter 232
+p3_mid_90f_l5      base       test nDCG@10 0.4502     26s  picked {'num_leaves': 15, 'min_data_in_leaf': 66} iter 330
+p4_mid_136f_l3     base       test nDCG@10 0.5691     41s  picked {'num_leaves': 31, 'min_data_in_leaf': 91} iter 260
+p5_big_220f_l5     base       test nDCG@10 0.4685    102s  picked {'num_leaves': 63, 'min_data_in_leaf': 181} iter 196

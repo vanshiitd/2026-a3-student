@@ -4,8 +4,11 @@
 # Extracting the zip gives the repository's directory structure at its root.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [ -n "$(git status --porcelain -- submission scripts harness tests)" ]; then
-  echo "uncommitted changes under submission/ scripts/ harness/ tests/ -- commit first" >&2
+# whole tree, not just code dirs: git archive only packs what's committed, so an uncommitted README or
+# experiments edit would silently be missing from the zip
+if [ -n "$(git status --porcelain)" ]; then
+  echo "uncommitted changes in the repo -- commit (or stash) them first:" >&2
+  git status --short >&2
   exit 1
 fi
 mkdir -p dist

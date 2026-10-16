@@ -20,15 +20,23 @@ def _dense_block(rows, width):
     block = np.zeros((len(rows), width), dtype=np.float32)
     for r, (idx, val) in enumerate(rows):
         if len(idx):
-            block[r, idx - 1] = val
+            keep = idx > 0  # index 0 handled after the full width is known (see read_ltr)
+            block[r, idx[keep] - 1] = val[keep]
     return block
+
+
+def _zero_index_cols(idx: np.ndarray, width: int) -> np.ndarray:
+    """column for each index. Feature indices are 1-based; a stray index 0 goes where the harness reader
+    puts it (X[r, 0 - 1] = last column), so train-time and serve-time inputs agree. Indices are ascending,
+    so if the same line also has index == width, that later token wins, same as in the harness."""
+    return np.where(idx == 0, width, idx) - 1
 
 
 def read_ltr(path: str, n_features: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """returns (X float32 [rows, D], y int64, qids object array), file order kept.
     sparse lines ok (missing features = 0), trailing '# comment' ignored.
     D = n_features if given else the largest feature index seen."""
-    labels, qids, blocks, rows = [], [], [], []
+    labels, qids, blocks, rows, zeros = [], [], [], [], []   # zeros: (row, value, row max index) for index 0
     max_idx, block_max = 0, 0
     with open(path, "r", encoding="utf-8") as f:
         for line_no, line in enumerate(f, start=1):
@@ -46,6 +54,8 @@ def read_ltr(path: str, n_features: Optional[int] = None) -> Tuple[np.ndarray, n
                 idx = arr[0::2].astype(np.int64)
                 if len(idx):
                     block_max = max(block_max, int(idx.max()))
+                    if idx.min() == 0:
+                        zeros.append((len(labels) - 1, float(arr[1::2][idx == 0][-1]), int(idx.max())))
                 rows.append((idx, arr[1::2]))
             else:
                 rows.append((np.zeros(0, np.int64), np.zeros(0)))
@@ -66,6 +76,9 @@ def read_ltr(path: str, n_features: Optional[int] = None) -> Tuple[np.ndarray, n
         b = blocks.pop()
         X[start:start + len(b), :b.shape[1]] = b
         start += len(b)
+    for row, val, row_max in zeros:
+        if width and row_max < width:  # an explicit last-index token on the line would have overwritten it
+            X[row, width - 1] = val
     return X, np.asarray(labels, dtype=np.int64), np.asarray(qids, dtype=object)
 
 
@@ -117,7 +130,7 @@ def read_into(paths: List[str], transform: str):
                     idx = arr[0::2].astype(np.int64)
                     if len(idx) and idx.max() > width:
                         raise WidthError(f"{path}:{line_no}: feature index {idx.max()} > scanned width {width}")
-                    T[r, idx - 1] = arr[1::2]
+                    T[r, _zero_index_cols(idx, width)] = arr[1::2]
                 r += 1
         # rows of a query must be contiguous for lightgbm; reorder this file's block if they aren't
         start = r - len(qids)
@@ -127,7 +140,7 @@ def read_into(paths: List[str], transform: str):
             for i, q in enumerate(qids):
                 first.setdefault(q, i)
             order = np.argsort(np.array([first[q] for q in qids]), kind="stable")
-            T[start:r] = T[start:r][order]
+            T[start:r, :width] = T[start:r, :width][order]  # qz half is still empty, don't copy it
             y[start:r] = y[start:r][order]
             sizes_f = group_sizes([qids[i] for i in order])
         sizes.append(sizes_f)
@@ -196,11 +209,24 @@ def parse_names(names: List[str]) -> Tuple[int, str]:
 
 
 def query_zscore(Xq: np.ndarray) -> np.ndarray:
-    """z-score each column inside one query's pool (constant column -> 0)"""
-    mu = Xq.mean(axis=0)
-    sd = Xq.std(axis=0)
+    """z-score each column inside one query's pool (constant column -> 0).
+    NaN/inf entries are treated as missing: they stay NaN (lightgbm's missing-value branch) and are left
+    out of the column's mean/std, so one bad value can't change the other documents' features.
+    The all-finite path is unchanged, so models trained before this guard still see identical inputs."""
+    if np.isfinite(Xq).all():
+        mu = Xq.mean(axis=0)
+        sd = Xq.std(axis=0)
+        sd[sd < 1e-12] = 1.0
+        return ((Xq - mu) / sd).astype(np.float32)
+    Xf = np.where(np.isfinite(Xq), Xq, np.nan).astype(np.float32)
+    ok = ~np.isnan(Xf)
+    n = ok.sum(axis=0)
+    filled = np.where(ok, Xf, 0.0)
+    mu = (filled.sum(axis=0) / np.maximum(n, 1)).astype(np.float32)
+    var = (np.where(ok, (Xf - mu) ** 2, 0.0).sum(axis=0) / np.maximum(n, 1)).astype(np.float32)
+    sd = np.sqrt(var)
     sd[sd < 1e-12] = 1.0
-    return ((Xq - mu) / sd).astype(np.float32)
+    return ((Xf - mu) / sd).astype(np.float32)
 
 
 def apply_transform(X: np.ndarray, qids, transform: str, sizes: Optional[List[int]] = None) -> np.ndarray:

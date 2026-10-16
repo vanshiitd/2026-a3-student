@@ -83,7 +83,9 @@ def combmnz_scores(base_scores: Dict[str, Dict[str, float]],
     document has a normalised score > 0. (Every candidate here has a score
     from every channel, so 'appears in the list' is defined as 'normalised
     score > 0' -- see docs/SUBMISSION_INTERFACE.md.)
-    With `weights`, the sum is weighted; the count only includes channels with weight > 0."""
+    With `weights`, the sum is weighted and the count only includes channels with weight > 0; channels with
+    weight <= 0 are left out entirely (CombSUM, by contrast, would add a negative weight's term -- the shipped
+    weights are all >= 0, so the two never differ in practice)."""
     norm = _normalised_channels(base_scores, channels)
     total = {d: 0.0 for d in base_scores}
     hits = {d: 0 for d in base_scores}

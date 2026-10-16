@@ -23,10 +23,14 @@ from submission.ltr_common import (WidthError, apply_transform, feature_names, g
                                    pad_to, read_into, read_ltr)
 
 TIME_GUARD_SECONDS = 16 * 60          # staff cap is 20 min
-# tree budget in (rows x features used x trees). 3.3e11 took 6 min on a fast laptop at the worst case
-# (500k x 300, query-z doubles it to 600), too close to 20 min on a 2-3x slower box -> 2.2e11 (~4 min here)
+# tree budget in (rows x features used x trees), split over the search fits + refit.
+# 2.2e11 = 249 s here on the synthetic worst case (500k x 300 -> 600 cols with query-z, no early stop).
+# Tried 2.9e11 + raising lr when the cap binds (notes F13): on real-shaped 500k x 300 data the picked
+# 127-leaf config early-stops well under the cap anyway, and the higher lr made it overshoot -> test
+# nDCG@10 0.4799 vs 0.4855. Kept 2.2e11 and a fixed lr.
 TREE_WORK_BUDGET = 2.2e11
-HIST_POOL_MB = 1024  # cap lightgbm's per-leaf histogram cache (it grows with leaves x features x bins)
+MIN_TREES = 50        # floor: early stopping on a saturated vali can otherwise ship 1-8 trees (critique M3)
+HIST_POOL_MB = 512    # cap lightgbm's per-leaf histogram cache (it grows with leaves x features x bins)
 
 # picked on 5 MSLR-TRAIN-derived proxies (experiments/c1_proxy.py, notes F9): query-z features +0.006,
 # train+vali refit +0.005, both +0.009 mean test nDCG@10, best on 4/5 proxies
@@ -77,12 +81,16 @@ def _base_params(seed: int, n_feat: int, lr: float) -> dict:
 
 
 class _TimeGuard:
+    """emergency stop near the staff time cap; remembers that it fired so the caller can fall back"""
+
     def __init__(self, deadline):
         self.deadline = deadline
+        self.fired = False
 
     def __call__(self, env):
         if time.monotonic() > self.deadline:
             import lightgbm as lgb
+            self.fired = True
             raise lgb.callback.EarlyStopException(env.iteration, env.evaluation_result_list)
 
 
@@ -121,39 +129,50 @@ def _train(train_path, vali_path, out_model_path, seed=0, *, transform="raw", se
     Ttr, Tva = T_all[:n_tr], T_all[n_tr:]  # row views, no copies
     ytr, yva = y_all[:n_tr], y_all[n_tr:]
 
-    base = _base_params(seed, T_all.shape[1], learning_rate)
     configs = _configs(n_tr, search)
-    work_per_tree = n_tr * T_all.shape[1] * base["feature_fraction"]
+    work_per_tree = n_tr * T_all.shape[1] * _feature_fraction(T_all.shape[1])
     fits = len(configs) + (1 if refit == "trainval" else 0)
     rounds = int(np.clip(TREE_WORK_BUDGET / work_per_tree / fits, 100, 5000))
+    base = _base_params(seed, T_all.shape[1], learning_rate)
     guard = _TimeGuard(t_start + TIME_GUARD_SECONDS)
 
     dtrain = lgb.Dataset(Ttr, label=ytr, group=g_tr, feature_name=names)
     dvali = lgb.Dataset(Tva, label=yva, group=g_va, feature_name=names, reference=dtrain)
-    tried, best = [], None
+    tried, best = [], None   # best = (vali score, trees to keep, config, model text)
     for cfg in configs:
-        params = dict(base, **cfg)
-        booster = lgb.train(params, dtrain, num_boost_round=rounds, valid_sets=[dvali], valid_names=["vali"],
+        if guard.fired:
+            break  # out of time: keep what we have
+        # keep_training_booster: otherwise lgb.train trims the returned model to best_iteration and the
+        # tree floor below would have nothing extra to keep
+        booster = lgb.train(dict(base, **cfg), dtrain, num_boost_round=rounds, valid_sets=[dvali],
+                            valid_names=["vali"], keep_training_booster=True,
                             callbacks=[lgb.early_stopping(es_rounds, verbose=False), guard])
         score = booster.best_score["vali"]["ndcg@10"]
+        # floor on the tree count, but never more trees than were actually grown
+        keep = max(booster.best_iteration, min(MIN_TREES, booster.current_iteration()))
         tried.append((score, booster.best_iteration, cfg))
         if best is None or score > best[0]:  # ties keep the earlier config
-            best = (score, booster.best_iteration, cfg, booster)
-        del booster  # only the best booster stays alive (each one holds its own histogram cache)
-    best_score, best_iter, best_cfg, best_booster = best
-    del best
+            # keep the best model as text, not as a live booster (that one holds its own histogram cache)
+            best = (score, keep, cfg, booster.model_to_string(num_iteration=keep))
+        del booster
+    best_score, keep, best_cfg, best_text = best
 
-    if refit == "trainval":
+    refit_done = False
+    if refit == "trainval" and not guard.fired:
         # same config, more data: trees scaled by the data ratio
-        del dtrain, dvali, best_booster
-        n_trees = int(round(best_iter * len(y_all) / n_tr))
+        del dtrain, dvali
+        n_trees = int(round(keep * len(y_all) / n_tr))
         model = lgb.train(dict(base, **best_cfg),
                           lgb.Dataset(T_all, label=y_all, group=g_tr + g_va, feature_name=names),
-                          num_boost_round=max(n_trees, 1), callbacks=[guard])
-        model.save_model(out_model_path)
-    else:
-        best_booster.save_model(out_model_path, num_iteration=best_iter)
+                          num_boost_round=n_trees, callbacks=[guard])
+        if not guard.fired:  # a refit cut short by the guard is worse than the finished search model
+            model.save_model(out_model_path)
+            refit_done = True
+    if not refit_done:
+        with open(out_model_path, "w") as f:
+            f.write(best_text)
 
     if return_info:
-        return {"rounds_cap": rounds, "tried": [(round(s, 4), it, c) for s, it, c in tried],
-                "picked": best_cfg, "best_iter": best_iter, "seconds": time.monotonic() - t_start}
+        return {"rounds_cap": rounds, "lr": learning_rate, "tried": [(round(s, 4), it, c) for s, it, c in tried],
+                "picked": best_cfg, "best_iter": keep, "refit_done": refit_done, "guard_fired": guard.fired,
+                "seconds": time.monotonic() - t_start}
