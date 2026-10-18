@@ -1,0 +1,3 @@
+trained on 6000 queries (train only), transform=raw+qz, 1200 trees + raw member 1600 trees (merged), 2 augmented copies -> dist/candidates/aug2/model.txt
+train nDCG@10 = 0.6611
+dev   nDCG@10 = 0.4886

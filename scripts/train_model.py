@@ -65,6 +65,46 @@ def merge_models(text_a: str, text_b: str) -> str:
     return "\n".join(head) + "\n" + "\n\n".join(blocks) + "\n\n\nend of trees\n" + tail_a
 
 
+SINGLES_COLS = list(range(125, 136))  # MSLR features 126-136: URL, link, pagerank/siterank, quality, clicks
+
+
+def _field_cols(field_idx: int, n_feat: int):
+    """MSLR layout: 25 feature groups x 5 fields for features 1..125 -> columns of one field"""
+    return [5 * g + field_idx for g in range(25)] if n_feat >= 125 else []
+
+
+def corrupt_query(Xq: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
+    """one corruption per query copy, from a fixed mixture: the 11 non-text features zeroed / one whole field
+    zeroed / 30% of columns zeroed / 30% of values zeroed / multiplicative noise sigma 0.5"""
+    Xq = Xq.copy()
+    kind = rng.randint(5)
+    if kind == 0:
+        Xq[:, SINGLES_COLS] = 0
+    elif kind == 1:
+        Xq[:, _field_cols(rng.randint(5), Xq.shape[1])] = 0
+    elif kind == 2:
+        Xq[:, rng.choice(Xq.shape[1], int(0.3 * Xq.shape[1]), replace=False)] = 0
+    elif kind == 3:
+        Xq[rng.rand(*Xq.shape) < 0.3] = 0
+    else:
+        Xq *= (1 + 0.5 * rng.randn(*Xq.shape)).astype(np.float32)
+    return Xq
+
+
+def augment_queries(X, y, q, copies: int, seed: int):
+    """original queries + `copies` corrupted copies of each (separate query groups), deterministic in seed"""
+    if copies == 0:
+        return X, y, q
+    rng = np.random.RandomState(seed)
+    starts = np.r_[0, np.nonzero(q[1:] != q[:-1])[0] + 1, len(q)]
+    Xs, ys, qs = [X], [y], [q]
+    for c in range(copies):
+        Xs.append(np.vstack([corrupt_query(X[starts[i]:starts[i + 1]], rng) for i in range(len(starts) - 1)]))
+        ys.append(y)
+        qs.append(np.array([f"{qq}#aug{c}" for qq in q], dtype=object))
+    return np.vstack(Xs), np.concatenate(ys), np.concatenate(qs)
+
+
 def _resolve(path, name):
     return os.path.join(path, name) if os.path.isdir(path) else path
 
@@ -89,6 +129,10 @@ def main():
                     help="single model only. Default (what ships): also train a raw-features-only member and "
                          "merge both into ONE model file (prediction = main model + raw member)")
     ap.add_argument("--blend-raw-trees", type=int, default=800)
+    ap.add_argument("--aug-copies", type=int, default=0,
+                    help="add this many corrupted copies of every training query (feature-dropout augmentation "
+                         "for robustness; see augment_queries)")
+    ap.add_argument("--aug-seed", type=int, default=100)
     args = ap.parse_args()
 
     import lightgbm as lgb
@@ -102,6 +146,7 @@ def main():
             raise SystemExit("--use-dev needs --dev")
         X, y, q = np.vstack([X, dev[0]]), np.concatenate([y, dev[1]]), np.concatenate([q, dev[2]])
     width = X.shape[1]
+    X_fit, y_fit, q_fit = augment_queries(X, y, q, args.aug_copies, args.aug_seed)
     params = {
         "objective": "lambdarank", "metric": "None",
         "learning_rate": args.learning_rate, "num_leaves": args.num_leaves,
@@ -110,20 +155,19 @@ def main():
         "seed": args.seed, "deterministic": True, "force_row_wise": True, "num_threads": args.threads,
         "verbose": -1,
     }
-    T = apply_transform(X, q, args.transform)
+    T = apply_transform(X_fit, q_fit, args.transform)
+    del X_fit
     names = feature_names(width, args.transform)
-    model = lgb.train(params, lgb.Dataset(T, label=y, group=group_sizes(q), feature_name=names),
+    model = lgb.train(params, lgb.Dataset(T, label=y_fit, group=group_sizes(q_fit), feature_name=names),
                       num_boost_round=args.trees)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     if args.blend:
         if args.transform != "raw+qz":
             raise SystemExit("--blend expects --transform raw+qz")
         # raw member: same layout, query-z block held constant so its trees only use raw features
-        T_raw = T.copy()
-        T_raw[:, width:] = 0.0
-        member = lgb.train(params, lgb.Dataset(T_raw, label=y, group=group_sizes(q), feature_name=names),
+        T[:, width:] = 0.0  # in place: T isn't needed again (train score below is computed on clean X)
+        member = lgb.train(params, lgb.Dataset(T, label=y_fit, group=group_sizes(q_fit), feature_name=names),
                            num_boost_round=args.blend_raw_trees)
-        del T_raw
         merged = merge_models(model.model_to_string(), member.model_to_string())
         with open(args.out, "w") as f:  # write the merged text as is (re-saving through lightgbm reformats it)
             f.write(merged)
@@ -132,8 +176,10 @@ def main():
         model.save_model(args.out)
     print(f"trained on {len(set(q.tolist()))} queries ({'train+dev' if args.use_dev else 'train only'}), "
           f"transform={args.transform}, {args.trees} trees"
-          f"{f' + raw member {args.blend_raw_trees} trees (merged)' if args.blend else ''} -> {args.out}")
-    print(f"train nDCG@10 = {mean_ndcg_from_scores(model.predict(T), y, q):.4f}")
+          f"{f' + raw member {args.blend_raw_trees} trees (merged)' if args.blend else ''}"
+          f"{f', {args.aug_copies} augmented copies' if args.aug_copies else ''} -> {args.out}")
+    del T
+    print(f"train nDCG@10 = {mean_ndcg_from_scores(model.predict(apply_transform(X, q, args.transform)), y, q):.4f}")
     if dev is not None and not args.use_dev:
         Xd, yd, qd = dev
         print(f"dev   nDCG@10 = {mean_ndcg_from_scores(model.predict(apply_transform(Xd, qd, args.transform)), yd, qd):.4f}")

@@ -1,0 +1,9 @@
+copies=0 trees=600/800  clean 0.4997  hard_mean 0.4284  drop_singles 0.3527  missing.3 0.3797  noise1 0.3578  dropcol.5 0.3255
+copies=0 trees=900/1200  clean 0.4989  hard_mean 0.4260  drop_singles 0.3503  missing.3 0.3759  noise1 0.3539  dropcol.5 0.3150
+copies=0 trees=1200/1600  clean 0.4983  hard_mean 0.4234  drop_singles 0.3473  missing.3 0.3734  noise1 0.3512  dropcol.5 0.3071
+copies=1 trees=600/800  clean 0.4942  hard_mean 0.4537  drop_singles 0.4039  missing.3 0.4533  noise1 0.4136  dropcol.5 0.4046
+copies=1 trees=900/1200  clean 0.4939  hard_mean 0.4530  drop_singles 0.4037  missing.3 0.4540  noise1 0.4120  dropcol.5 0.4078
+copies=1 trees=1200/1600  clean 0.4947  hard_mean 0.4534  drop_singles 0.4049  missing.3 0.4551  noise1 0.4111  dropcol.5 0.4093
+copies=2 trees=600/800  clean 0.4944  hard_mean 0.4549  drop_singles 0.4081  missing.3 0.4533  noise1 0.4199  dropcol.5 0.4017
+copies=2 trees=900/1200  clean 0.4958  hard_mean 0.4559  drop_singles 0.4095  missing.3 0.4565  noise1 0.4199  dropcol.5 0.4021
+copies=2 trees=1200/1600  clean 0.4978  hard_mean 0.4557  drop_singles 0.4089  missing.3 0.4559  noise1 0.4198  dropcol.5 0.4019
