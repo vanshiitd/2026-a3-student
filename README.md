@@ -6,7 +6,7 @@ Vansh Saini, 2023EE10656. MSLR-WEB10K Fold1, TRAIN = `train.txt`, DEV = `vali.tx
 | component | what ships | DEV nDCG@10 |
 |---|---|---|
 | `fuse_candidates` (Track A) | CombSUM over min-max scores, equal weights, LMIR.JM left out | 0.3105 (MAP@10 0.1302) |
-| `rerank_with_ltr` (Tracks B, C2) | blend of two LightGBM lambdarank models in one file: raw + query-z features (63 leaves, 600 trees) + raw features only (63 leaves, 800 trees) | 0.4933 (MAP@10 0.1546) |
+| `rerank_with_ltr` (Tracks B, C2) | blend of two LightGBM lambdarank models in one file, both trained with feature-dropout augmentation: raw + query-z features (63 leaves, 1200 trees) + raw features only (63 leaves, 1600 trees) | 0.4886 (MAP@10 0.1528) |
 | `pairwise_model.pt` (Track P) | RankNet MLP, gain-proportional pair sampling | 0.4419 |
 | `pointwise_model.pt` | squared-error MLP, same net | 0.4201 |
 | `recipe.py` (Track C1) | size-scaled LambdaMART search + query-z features + train/vali refit | n/a (hidden data) |
@@ -17,7 +17,7 @@ For reference: best single base channel 0.2887, textbook RankNet (64 hidden, uni
 ```
 pip install -r requirements.txt
 python scripts/prepare_mslr.py --fold-dir <MSLR-WEB10K/Fold1>     # only Fold1 train/vali
-python scripts/train_model.py  --train data/train --dev data/dev --out submission/model.txt   # byte-identical (blend is the default)
+python scripts/train_model.py  --train data/train --dev data/dev --out submission/model.txt   # byte-identical (defaults = shipped blend + augmentation)
 python scripts/train_neural.py --kind both --train data/train --dev data/dev --out-dir submission
 python -m harness.run_harness --features data/dev/vali.txt --model submission/model.txt
 bash scripts/smoke_test.sh        # toy end-to-end + tests (trains into runs/, never touches submission/)
@@ -30,7 +30,7 @@ Local macOS note: torch and lightgbm in one process clash (two libomp copies); r
 ## Training-data declaration
 | model | trained on | tuned on | early-stopped on |
 |---|---|---|---|
-| LambdaMART `model.txt` (blend) | TRAIN only | grouped 5-fold CV inside TRAIN; final pick among 3 candidates also used the live leaderboard C2 score (see below) | nothing (tree counts fixed from CV) |
+| LambdaMART `model.txt` (augmented blend) | TRAIN only (+ 2 corrupted copies of every TRAIN query) | grouped CV inside TRAIN; the blend and the augmentation were each confirmed once with the live leaderboard C2 score (see below) | nothing (tree counts fixed from CV) |
 | `pointwise_model.pt` | 90% of TRAIN queries | TRAIN holdout | 10% TRAIN query holdout |
 | `pairwise_model.pt` | 90% of TRAIN queries | TRAIN holdout | 10% TRAIN query holdout |
 | fusion weights | n/a (no learning) | TRAIN | n/a |
@@ -44,8 +44,12 @@ computed on the MSLR held-out split, for every upload. After the first upload (s
 0.3566), three alternatives prepared in advance were compared on TRAIN CV under generic shifts
 (`experiments/c2_candidates.py`): a raw-only model, a regularised query-z model, and the query-z + raw blend.
 The blend was best on TRAIN CV, both clean (+0.005) and under shift (+0.005), in every fold. It was
-uploaded and scored C2 0.3606, so it ships. The live C2 score was therefore used once, to confirm the choice
-between these prepared candidates; nothing was tuned on it beyond that.
+uploaded and scored C2 0.3606. Next, a TRAIN-only probe (`experiments/c2_probe.py`) showed the blend collapses
+when the 11 non-text features (126-136) are removed (-0.15), or under heavy missing values or noise. Training on
+corrupted copies of each query fixed most of that on two CV folds (`experiments/c2_aug.py`: +0.026 averaged
+over 17 heavy perturbations, -0.001 to -0.002 clean). That model was uploaded and scored C2 0.3843, so it ships.
+In total the live C2 score was used twice, each time to confirm one candidate already chosen on TRAIN CV.
+Nothing was tuned on it beyond that, and nothing was trained on DEV or held-out data.
 
 ## Fusion method and why
 CombSUM: min-max normalise each channel within the candidate pool, sum with equal weights over BM25 (whole
@@ -72,6 +76,14 @@ Their trees are concatenated into one LightGBM text file (`scripts/train_model.p
 the blend beat either model alone, clean and under every shift tested; two differently built views of the
 same features fail in different places.
 
+**Feature-dropout augmentation.** Each member is trained on the original TRAIN queries plus 2 corrupted copies
+of every query (`scripts/train_model.py:augment_queries`, seeded). Each copy gets one corruption from a fixed
+mixture: the 11 non-text features zeroed, one whole field zeroed, 30% of the columns zeroed, 30% of the values
+zeroed, or multiplicative noise. Without it, the model leaned so heavily on click, PageRank and quality
+features that removing them cost 0.15 nDCG@10. With it, the model learns rankings that survive missing or
+damaged features: 0.3527 -> 0.4089 with those features removed, and 0.3797 -> 0.4559 with 30% of values
+missing (CV fold 0).
+
 ## LambdaMART hyperparameters and how chosen
 `objective=lambdarank, learning_rate=0.05, num_leaves=63, min_data_in_leaf=200, feature_fraction=0.5,
 bagging_fraction=0.8 (freq 1), lambda_l2=1, 600 trees, truncation level 30 (default)`.
@@ -85,8 +97,11 @@ no early stopping on any reported fold:
   300 to 800 trees (train 0.63 -> 0.71); 31-leaf variants reach 0.4798 at 1500-2000 trees.
 
 ## Final configuration: dev accuracy vs generalisation
-For the query-z member I took 63 leaves with min_data_in_leaf 200 and 600 trees, not the configuration
-that fits TRAIN hardest. The raw member uses the same shape with 800 trees, the raw-feature CV peak.
+For the query-z member I took 63 leaves with min_data_in_leaf 200, not the configuration that fits TRAIN
+hardest; the raw member uses the same shape. With augmentation the training set is 3x larger and the CV curve
+is flat from 600/800 to 1200/1600 trees, so I took 1200/1600. The augmentation also trades about 0.005 of DEV
+nDCG@10 (0.4933 -> 0.4886) for much better accuracy when features are missing or noisy. That is the
+dev-versus-generalisation trade this assignment is about.
 Every config in the top group is within one fold standard error of the others. This one has the widest
 plateau, so the exact tree count matters least. min_data 200 (about two queries' worth of documents per
 leaf) stops leaves from memorising single queries, and 600 sits mid-plateau, adjusted for the full-TRAIN

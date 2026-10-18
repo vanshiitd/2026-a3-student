@@ -115,7 +115,7 @@ def main():
     ap.add_argument("--dev", default=None, help="dev file/dir; printed score only, unless --use-dev")
     ap.add_argument("--out", default="submission/model.txt")
     ap.add_argument("--transform", choices=["raw", "raw+qz"], default="raw+qz")
-    ap.add_argument("--trees", type=int, default=600)
+    ap.add_argument("--trees", type=int, default=1200)
     ap.add_argument("--num-leaves", type=int, default=63)
     ap.add_argument("--learning-rate", type=float, default=0.05)
     ap.add_argument("--min-data-in-leaf", type=int, default=200)
@@ -128,8 +128,8 @@ def main():
     ap.add_argument("--no-blend", dest="blend", action="store_false",
                     help="single model only. Default (what ships): also train a raw-features-only member and "
                          "merge both into ONE model file (prediction = main model + raw member)")
-    ap.add_argument("--blend-raw-trees", type=int, default=800)
-    ap.add_argument("--aug-copies", type=int, default=0,
+    ap.add_argument("--blend-raw-trees", type=int, default=1600)
+    ap.add_argument("--aug-copies", type=int, default=2,
                     help="add this many corrupted copies of every training query (feature-dropout augmentation "
                          "for robustness; see augment_queries)")
     ap.add_argument("--aug-seed", type=int, default=100)

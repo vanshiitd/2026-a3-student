@@ -30,31 +30,34 @@ HARD = ["drop_singles(126-136)", "drop_clicks(133-136)", "drop_quality+rank(130-
                                              "noise_mult:0.3", "noise_mult:1.0", "scale_cols:0.5", "scale_cols:1.0"]
 
 
-def corrupt_query(Xq, rng):
-    """one corruption per query copy, drawn from the mixture"""
+def corrupt_query(Xq, rng, mix="fixed"):
+    """one corruption per query copy, drawn from the mixture. mix='fixed' = the shipped one (30% / sigma .5);
+    mix='varied' draws the strength per copy (fraction U(.1,.6), sigma U(.2,1.0))"""
     Xq = Xq.copy()
     kind = rng.randint(5)
+    frac = 0.3 if mix == "fixed" else rng.uniform(0.1, 0.6)
+    sigma = 0.5 if mix == "fixed" else rng.uniform(0.2, 1.0)
     if kind == 0:
         Xq[:, SINGLES_COLS] = 0
     elif kind == 1:
         Xq[:, cols_field(FIELDS[rng.randint(5)])] = 0
     elif kind == 2:
-        Xq[:, rng.choice(Xq.shape[1], int(0.3 * Xq.shape[1]), replace=False)] = 0
+        Xq[:, rng.choice(Xq.shape[1], int(frac * Xq.shape[1]), replace=False)] = 0
     elif kind == 3:
-        Xq[rng.rand(*Xq.shape) < 0.3] = 0
+        Xq[rng.rand(*Xq.shape) < frac] = 0
     else:
-        Xq *= (1 + 0.5 * rng.randn(*Xq.shape)).astype(np.float32)
+        Xq *= (1 + sigma * rng.randn(*Xq.shape)).astype(np.float32)
     return Xq
 
 
-def augment(X, y, q, copies, seed):
+def augment(X, y, q, copies, seed, mix="fixed"):
     if copies == 0:
         return X, y, q
     rng = np.random.RandomState(seed)
     b = query_bounds(q)
     Xs, ys, qs = [X], [y], [q]
     for c in range(copies):
-        blocks = [corrupt_query(X[b[i]:b[i + 1]], rng) for i in range(len(b) - 1)]
+        blocks = [corrupt_query(X[b[i]:b[i + 1]], rng, mix) for i in range(len(b) - 1)]
         Xs.append(np.vstack(blocks))
         ys.append(y)
         qs.append(np.array([f"{qq}#aug{c}" for qq in q], dtype=object))
@@ -67,23 +70,26 @@ def main():
     ap.add_argument("--fold", type=int, default=0)
     ap.add_argument("--copies", type=int, nargs="+", default=[0, 1, 2])
     ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--mix", choices=["fixed", "varied"], default="fixed")
+    ap.add_argument("--ff", type=float, default=0.5)
+    ap.add_argument("--only-final-trees", action="store_true", help="evaluate 1200/1600 only")
     args = ap.parse_args()
     X, y, q = load_split("train")
     tr, va = grouped_kfold(q, k=5, seed=0)[args.fold]
     common = dict(objective="lambdarank", metric="None", learning_rate=0.05, num_leaves=63, min_data_in_leaf=200,
-                  feature_fraction=0.5, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, seed=0,
+                  feature_fraction=args.ff, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, seed=0,
                   deterministic=True, force_row_wise=True, verbose=-1, num_threads=args.threads)
     names = feature_names(136, "raw+qz")
     perts = perturbations()
     for K in args.copies:
-        Xa, ya, qa = augment(X[tr], y[tr], q[tr], K, seed=100 + args.fold)
+        Xa, ya, qa = augment(X[tr], y[tr], q[tr], K, seed=100 + args.fold, mix=args.mix)
         T = apply_transform(Xa, qa, "raw+qz")
         m_qz = lgb.train(common, lgb.Dataset(T, label=ya, group=group_sizes(qa), feature_name=names), 1200)
         T[:, 136:] = 0
         m_raw = lgb.train(common, lgb.Dataset(T, label=ya, group=group_sizes(qa), feature_name=names), 1600)
         del T, Xa
-        for nq, nr in ((600, 800), (900, 1200), (1200, 1600)):
-            rec = {"fold": args.fold, "copies": K, "trees": [nq, nr]}
+        for nq, nr in (((1200, 1600),) if args.only_final_trees else ((600, 800), (900, 1200), (1200, 1600))):
+            rec = {"fold": args.fold, "copies": K, "trees": [nq, nr], "mix": args.mix, "ff": args.ff}
             for name, (kind, arg) in perts.items():
                 rng = np.random.RandomState(7)
                 Xs, ys, qs = apply(kind, arg, X[va], y[va], q[va], rng)
@@ -92,7 +98,7 @@ def main():
             rec["hard_mean"] = float(np.mean([rec[h] for h in HARD]))
             with open(RESULTS, "a") as f:
                 f.write(json.dumps(rec) + "\n")
-            print(f"copies={K} trees={nq}/{nr}  clean {rec['clean']:.4f}  hard_mean {rec['hard_mean']:.4f}  "
+            print(f"mix={args.mix} ff={args.ff} copies={K} trees={nq}/{nr}  clean {rec['clean']:.4f}  hard_mean {rec['hard_mean']:.4f}  "
                   f"drop_singles {rec['drop_singles(126-136)']:.4f}  missing.3 {rec['missing:0.3']:.4f}  "
                   f"noise1 {rec['noise_mult:1.0']:.4f}  dropcol.5 {rec['dropcol_rand:0.5']:.4f}", flush=True)
 

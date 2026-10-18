@@ -1,0 +1,6 @@
+copies=0 trees=600/800  clean 0.4809  hard_mean 0.4157  drop_singles 0.3385  missing.3 0.3690  noise1 0.3426  dropcol.5 0.3474
+copies=0 trees=900/1200  clean 0.4792  hard_mean 0.4130  drop_singles 0.3349  missing.3 0.3669  noise1 0.3359  dropcol.5 0.3380
+copies=0 trees=1200/1600  clean 0.4800  hard_mean 0.4119  drop_singles 0.3358  missing.3 0.3656  noise1 0.3328  dropcol.5 0.3368
+copies=2 trees=600/800  clean 0.4788  hard_mean 0.4377  drop_singles 0.3851  missing.3 0.4342  noise1 0.4002  dropcol.5 0.3935
+copies=2 trees=900/1200  clean 0.4783  hard_mean 0.4379  drop_singles 0.3853  missing.3 0.4352  noise1 0.4006  dropcol.5 0.3961
+copies=2 trees=1200/1600  clean 0.4786  hard_mean 0.4381  drop_singles 0.3856  missing.3 0.4346  noise1 0.4006  dropcol.5 0.3967
