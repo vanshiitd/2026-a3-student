@@ -266,7 +266,8 @@ def dev_ndcg(scorer: Callable[[np.ndarray], np.ndarray], X, y, qids) -> float:
 def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch_size: int = 1024,
                 lr: float = 1e-3, pairs_per_query: int = 300, patience: int = 3, hidden=64,
                 verbose: bool = False, sampler: str = "uniform", weighting: str = "none",
-                lambda_top: int = 0, weight_decay: float = 0.0, scaler: str = "standard"):
+                lambda_top: int = 0, weight_decay: float = 0.0, scaler: str = "standard",
+                ema: float = 0.0, cosine: bool = False):
     """Train a 'pointwise' or 'pairwise' scorer. train / dev are (X_raw, y, qids)
     tuples. Returns (network, standardizer, history) with the best-dev-nDCG
     weights restored.
@@ -278,7 +279,10 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
       weighting 'none' | 'lambda' (|delta nDCG| per pair, recomputed every epoch -> LambdaRank)
       lambda_top  truncation rank for the lambda discount, 0 = whole list
       weight_decay  Adam L2
-      scaler    'standard' | 'robust' (median / quantile spread, same artifact format)"""
+      scaler    'standard' | 'robust' (median / quantile spread, same artifact format)
+      ema       > 0: keep an exponential moving average of the weights (decay per step), evaluate and
+                return the averaged weights -- still a plain MLP state_dict
+      cosine    cosine-decay the learning rate over `epochs`"""
     if kind not in ("pointwise", "pairwise"):
         raise ValueError("kind must be 'pointwise' or 'pairwise'")
     X, y, q = train
@@ -300,6 +304,13 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
     else:
         pair_fn = make_pairs
     qindex = _QueryIndex(q, y) if (kind == "pairwise" and weighting == "lambda") else None
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs) if cosine else None
+    ema_net = copy.deepcopy(network) if ema > 0 else None
+
+    def _ema_update():
+        with torch.no_grad():
+            for pe, pn in zip(ema_net.parameters(), network.parameters()):
+                pe.mul_(ema).add_(pn.detach(), alpha=1.0 - ema)
 
     history = []
     best_nd, best_state, bad_epochs = -1.0, copy.deepcopy(network.state_dict()), 0
@@ -330,10 +341,15 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
                 losses.append(pairwise_step(network, optimizer, Xt[bt[:, 0]], Xt[bt[:, 1]]))
             else:
                 losses.append(pointwise_step(network, optimizer, Xt[bt], yt[bt]))
+            if ema_net is not None:
+                _ema_update()
+        if sched is not None:
+            sched.step()
 
+        eval_net = ema_net if ema_net is not None else network
         rec = {"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else float("nan")}
         if dev is not None:
-            rec["dev_ndcg@10"] = dev_ndcg(make_scorer(network, standardizer), *dev)
+            rec["dev_ndcg@10"] = dev_ndcg(make_scorer(eval_net, standardizer), *dev)
         history.append(rec)
         if verbose:
             print(f"  {kind} epoch {epoch:2d}  loss {rec['train_loss']:.4f}  "
@@ -344,7 +360,7 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
         # early stopping on the dev split given (keep best weights)
         nd = rec["dev_ndcg@10"]
         if nd > best_nd:
-            best_nd, best_state, bad_epochs = nd, copy.deepcopy(network.state_dict()), 0
+            best_nd, best_state, bad_epochs = nd, copy.deepcopy(eval_net.state_dict()), 0
         else:
             bad_epochs += 1
             if bad_epochs >= patience:
@@ -352,4 +368,6 @@ def train_model(kind: str, train, dev, *, seed: int = 0, epochs: int = 20, batch
 
     if dev is not None:
         network.load_state_dict(best_state)
+    elif ema_net is not None:
+        network.load_state_dict(ema_net.state_dict())
     return network, standardizer, history

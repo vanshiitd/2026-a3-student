@@ -51,6 +51,10 @@ VARIANTS = {
     "gain_lambda_lr3": {"sampler": "gain", "weighting": "lambda", "lr": 3e-4},
     "gain_lr3_e50": {"sampler": "gain", "lr": 3e-4, "epochs": 50, "patience": 6},
     "gain_wide_lr3": {"sampler": "gain", "hidden": [128, 64], "lr": 3e-4},
+    "gain_ema": {"sampler": "gain", "lr": 3e-4, "epochs": 50, "patience": 6, "ema": 0.999},
+    "gain_cos": {"sampler": "gain", "lr": 3e-4, "epochs": 30, "patience": 30, "cosine": True},
+    "gain_ema_lr1e3": {"sampler": "gain", "lr": 1e-3, "epochs": 50, "patience": 6, "ema": 0.999},
+    "gain_ema_wide": {"sampler": "gain", "lr": 3e-4, "epochs": 50, "patience": 6, "ema": 0.999, "hidden": [256, 128]},
 }
 DEFAULTS = {"kind": "pairwise", "epochs": 30, "patience": 4, "lr": 1e-3, "batch_size": 1024,
             "pairs_per_query": 300, "hidden": 64}
