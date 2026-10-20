@@ -73,9 +73,17 @@ def main():
     ap.add_argument("--mix", choices=["fixed", "varied"], default="fixed")
     ap.add_argument("--ff", type=float, default=0.5)
     ap.add_argument("--only-final-trees", action="store_true", help="evaluate 1200/1600 only")
+    ap.add_argument("--subsample", type=float, default=1.0,
+                    help="use only this fraction of the training-fold queries (learning-curve check)")
+    ap.add_argument("--third", action="store_true",
+                    help="also train a query-z-only member (raw block held constant) and report the 3-member blend")
     args = ap.parse_args()
     X, y, q = load_split("train")
     tr, va = grouped_kfold(q, k=5, seed=0)[args.fold]
+    if args.subsample < 1.0:  # keep a random subset of whole training queries
+        uq = np.array(list(dict.fromkeys(q[tr].tolist())))
+        keep = set(np.random.RandomState(42).choice(uq, int(len(uq) * args.subsample), replace=False).tolist())
+        tr = np.array([i for i in tr if q[i] in keep])
     common = dict(objective="lambdarank", metric="None", learning_rate=0.05, num_leaves=63, min_data_in_leaf=200,
                   feature_fraction=args.ff, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, seed=0,
                   deterministic=True, force_row_wise=True, verbose=-1, num_threads=args.threads)
@@ -85,20 +93,33 @@ def main():
         Xa, ya, qa = augment(X[tr], y[tr], q[tr], K, seed=100 + args.fold, mix=args.mix)
         T = apply_transform(Xa, qa, "raw+qz")
         m_qz = lgb.train(common, lgb.Dataset(T, label=ya, group=group_sizes(qa), feature_name=names), 1200)
+        m_qzo = None
+        if args.third:  # query-z-only member: raw block constant
+            Tq = T.copy()
+            Tq[:, :136] = 0
+            m_qzo = lgb.train(common, lgb.Dataset(Tq, label=ya, group=group_sizes(qa), feature_name=names), 1200)
+            del Tq
         T[:, 136:] = 0
         m_raw = lgb.train(common, lgb.Dataset(T, label=ya, group=group_sizes(qa), feature_name=names), 1600)
         del T, Xa
         for nq, nr in (((1200, 1600),) if args.only_final_trees else ((600, 800), (900, 1200), (1200, 1600))):
-            rec = {"fold": args.fold, "copies": K, "trees": [nq, nr], "mix": args.mix, "ff": args.ff}
+            rec = {"fold": args.fold, "copies": K, "trees": [nq, nr], "mix": args.mix, "ff": args.ff,
+                   "subsample": args.subsample}
             for name, (kind, arg) in perts.items():
                 rng = np.random.RandomState(7)
                 Xs, ys, qs = apply(kind, arg, X[va], y[va], q[va], rng)
                 Ts = apply_transform(Xs, qs, "raw+qz")
-                rec[name] = ndcg10(m_qz.predict(Ts, num_iteration=nq) + m_raw.predict(Ts, num_iteration=nr), ys, qs)
+                s2 = m_qz.predict(Ts, num_iteration=nq) + m_raw.predict(Ts, num_iteration=nr)
+                rec[name] = ndcg10(s2, ys, qs)
+                if m_qzo is not None:
+                    rec["3m:" + name] = ndcg10(s2 + m_qzo.predict(Ts, num_iteration=nq), ys, qs)
             rec["hard_mean"] = float(np.mean([rec[h] for h in HARD]))
+            if m_qzo is not None:
+                rec["3m:hard_mean"] = float(np.mean([rec["3m:" + h] for h in HARD]))
+                print(f"  3-member blend: clean {rec['3m:clean']:.4f}  hard_mean {rec['3m:hard_mean']:.4f}", flush=True)
             with open(RESULTS, "a") as f:
                 f.write(json.dumps(rec) + "\n")
-            print(f"mix={args.mix} ff={args.ff} copies={K} trees={nq}/{nr}  clean {rec['clean']:.4f}  hard_mean {rec['hard_mean']:.4f}  "
+            print(f"sub={args.subsample} mix={args.mix} ff={args.ff} copies={K} trees={nq}/{nr}  clean {rec['clean']:.4f}  hard_mean {rec['hard_mean']:.4f}  "
                   f"drop_singles {rec['drop_singles(126-136)']:.4f}  missing.3 {rec['missing:0.3']:.4f}  "
                   f"noise1 {rec['noise_mult:1.0']:.4f}  dropcol.5 {rec['dropcol_rand:0.5']:.4f}", flush=True)
 

@@ -1,0 +1,20 @@
+trained on 8000 queries (train+dev), transform=raw+qz, 1200 trees + raw member 1600 trees (merged), 2 augmented copies -> dist/candidates/dev/model.txt
+train nDCG@10 = 0.6329
+     1104.30 real      3969.09 user        77.89 sys
+          6032228352  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+            11427175  page reclaims
+                 754  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+               84266  voluntary context switches
+             7407617  involuntary context switches
+      41416864923208  instructions retired
+      12166438112358  cycles elapsed
+         13479308016  peak memory footprint

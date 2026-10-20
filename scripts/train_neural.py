@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import argparse
 
+import numpy as np
+
 from harness.cv import grouped_kfold
 from harness.feature_io import read_svmlight_ltr, stack
 from submission.pointwise_pairwise import dev_ndcg, make_scorer, save_scorer, train_model
@@ -44,10 +46,16 @@ def main():
     ap.add_argument("--sampler", choices=["uniform", "gain", "gain2"], default="gain")
     ap.add_argument("--weighting", choices=["none", "lambda"], default="none")
     ap.add_argument("--early-stop", choices=["train-holdout", "dev"], default="train-holdout")
+    ap.add_argument("--use-dev", action="store_true",
+                    help="also train on dev (declare it); early stopping then uses a 10%% holdout of TRAIN+DEV")
     args = ap.parse_args()
 
     train = stack(read_svmlight_ltr(_resolve(args.train, "train.txt")))
     dev = stack(read_svmlight_ltr(_resolve(args.dev, "vali.txt")))
+    if args.use_dev:
+        if args.early_stop == "dev":
+            raise SystemExit("--use-dev with --early-stop dev would stop on training data")
+        train = tuple(np.concatenate([a, b]) for a, b in zip(train, dev))
     if args.early_stop == "train-holdout":
         X, y, q = train
         fit_idx, ho_idx = grouped_kfold(q, k=10, seed=0)[0]

@@ -1,0 +1,2 @@
+  3-member blend: clean 0.4754  hard_mean 0.4391
+mix=fixed ff=0.5 copies=2 trees=1200/1600  clean 0.4786  hard_mean 0.4381  drop_singles 0.3856  missing.3 0.4346  noise1 0.4006  dropcol.5 0.3967

@@ -1,0 +1,1 @@
+mix=fixed ff=0.5 copies=3 trees=1200/1600  clean 0.4957  hard_mean 0.4573  drop_singles 0.4123  missing.3 0.4573  noise1 0.4227  dropcol.5 0.4124
